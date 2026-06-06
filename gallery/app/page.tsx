@@ -5,7 +5,7 @@ import Header from "@/components/header";
 import Gallery from "@/components/gallery";
 
 type ImageItem = {
-  src: string;
+  file: File;
   name: string;
   size: number;
   lastModified: number;
@@ -143,7 +143,7 @@ export default function Page() {
     const newImages: ImageItem[] = files
       .filter((file) => file.type.startsWith("image/"))
       .map((file) => ({
-        src: URL.createObjectURL(file),
+        file,
         name: file.name,
         size: file.size,
         lastModified: file.lastModified,
