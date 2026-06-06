@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Header from "@/components/header";
 import Gallery from "@/components/gallery";
 
@@ -19,26 +19,95 @@ export default function Page() {
 
   const [search, setSearch] = useState("");
 
-  // FILTER FIRST (instant search)
-  const filteredImages = images.filter((img) =>
-    img.name.toLowerCase().includes(search.toLowerCase()),
-  );
+  const [selectedMonth, setSelectedMonth] = useState<string>("all");
+  const [selectedYear, setSelectedYear] = useState<string>("all");
 
-  // THEN SORT FILTERED RESULTS
+  // -----------------------------
+  // DATE INFO
+  // -----------------------------
+  const dateInfo = useMemo(() => {
+    return images.map((img) => {
+      const d = new Date(img.lastModified);
+      return {
+        month: d.getMonth() + 1,
+        year: d.getFullYear(),
+      };
+    });
+  }, [images]);
+
+  const years = useMemo(() => {
+    return Array.from(new Set(dateInfo.map((d) => d.year))).sort(
+      (a, b) => b - a,
+    );
+  }, [dateInfo]);
+
+  const months = useMemo(() => {
+    return Array.from(
+      new Set(
+        dateInfo
+          .filter((d) =>
+            selectedYear === "all" ? true : d.year === Number(selectedYear),
+          )
+          .map((d) => d.month),
+      ),
+    ).sort((a, b) => a - b);
+  }, [dateInfo, selectedYear]);
+
+  // -----------------------------
+  // SAFE VALUES (NO EFFECTS)
+  // -----------------------------
+  const safeYear =
+    selectedYear !== "all" && !years.includes(Number(selectedYear))
+      ? "all"
+      : selectedYear;
+
+  const safeMonth =
+    selectedMonth !== "all" && !months.includes(Number(selectedMonth))
+      ? "all"
+      : selectedMonth;
+
+  // -----------------------------
+  // FILTER
+  // -----------------------------
+  const filteredImages = images.filter((img) => {
+    const date = new Date(img.lastModified);
+
+    const matchesSearch = img.name.toLowerCase().includes(search.toLowerCase());
+
+    const matchesYear =
+      safeYear === "all" || date.getFullYear() === Number(safeYear);
+
+    const matchesMonth =
+      safeMonth === "all" || date.getMonth() + 1 === Number(safeMonth);
+
+    return matchesSearch && matchesYear && matchesMonth;
+  });
+
+  // -----------------------------
+  // SORT
+  // -----------------------------
   const sortedImages = [...filteredImages].sort((a, b) => {
     let compare = 0;
 
     if (sortBy === "size") compare = a.size - b.size;
     if (sortBy === "name") compare = a.name.localeCompare(b.name);
+    if (sortBy === "date") compare = a.lastModified - b.lastModified;
 
-    return sortDir === "asc" ? -compare : compare;
+    const dir = sortDir === "asc" ? -1 : 1;
+    return compare * dir;
   });
 
+  const handleSort = (field: "name" | "size" | "date") => {
+    if (sortBy === field) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(field);
+      setSortDir("asc");
+    }
+  };
+
   return (
-    <div
-      className="min-h-screen flex flex-col"
-      style={{ paddingLeft: "1vw", paddingRight: "1vw" }}
-    >
+    <div className="min-h-screen flex flex-col px-4">
       {/* HEADER */}
       <Header
         onFolderSelect={(files) => {
@@ -53,7 +122,7 @@ export default function Page() {
         }}
       />
 
-      {/* SEARCH BAR */}
+      {/* SEARCH */}
       <div className="p-2 border-b">
         <input
           type="text"
@@ -64,29 +133,71 @@ export default function Page() {
         />
       </div>
 
-      {/* SORT CONTROLS */}
-      <div className="flex gap-2 p-2 text-sm cu">
-        <button
-          className="px-4 py-2 bg-gray-600 rounded"
-          onClick={() => setSortBy("name")}
+      {/* FILTERS */}
+      <div className="flex gap-2 p-2 border-b text-sm">
+        {/* YEAR */}
+        <select
+          value={safeYear}
+          onChange={(e) => setSelectedYear(e.target.value)}
+          className="px-3 py-2 border rounded"
         >
-          Name
+          <option value="all">All Years</option>
+          {years.map((y) => (
+            <option key={y} value={y}>
+              {y}
+            </option>
+          ))}
+        </select>
+
+        {/* MONTH */}
+        <select
+          value={safeMonth}
+          onChange={(e) => setSelectedMonth(e.target.value)}
+          className="px-3 py-2 border rounded"
+        >
+          <option value="all">All Months</option>
+          {months.map((m) => (
+            <option key={m} value={m}>
+              {m.toString().padStart(2, "0")}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* SORT */}
+      <div className="flex gap-2 p-2 text-sm">
+        <button
+          className={`px-3 py-2 rounded ${
+            sortBy === "name" ? "bg-black text-white" : "bg-gray-600 text-white"
+          }`}
+          onClick={() => handleSort("name")}
+        >
+          Name {sortBy === "name" ? (sortDir === "asc" ? "↑" : "↓") : ""}
         </button>
 
         <button
-          className="px-4 py-2 bg-gray-600 rounded"
-          onClick={() => setSortBy("size")}
+          className={`px-3 py-2 rounded ${
+            sortBy === "size" ? "bg-black text-white" : "bg-gray-600 text-white"
+          }`}
+          onClick={() => handleSort("size")}
         >
-          Size
+          Size {sortBy === "size" ? (sortDir === "asc" ? "↑" : "↓") : ""}
         </button>
 
         <button
-          className="px-4 py-2 bg-gray-600 rounded"
-          style={{ marginLeft: "1vw" }}
-          onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+          className={`px-3 py-2 rounded ${
+            sortBy === "date" ? "bg-black text-white" : "bg-gray-600 text-white"
+          }`}
+          onClick={() => handleSort("date")}
         >
-          Toggle Order
+          Date {sortBy === "date" ? (sortDir === "asc" ? "↑" : "↓") : ""}
         </button>
+      </div>
+
+      {/* COUNT */}
+      <div className="px-2 py-2 text-sm text-white border-b">
+        Showing <span className="font-semibold">{sortedImages.length}</span>{" "}
+        images
       </div>
 
       {/* GALLERY */}
