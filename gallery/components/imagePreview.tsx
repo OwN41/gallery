@@ -11,36 +11,28 @@ type Props = {
 
 export default function ImagePreview({ src, name, onClose }: Props) {
   useEffect(() => {
+    if (!src) return;
+
     document.body.style.overflow = "hidden";
 
     return () => {
       document.body.style.overflow = "auto";
     };
-  }, []);
+  }, [src]);
 
   if (!src) return null;
 
   return (
     <div
+      className="fixed inset-0 z-[99999] flex items-center justify-center animate-fadeIn"
       style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        width: "100vw",
-        height: "100vh",
-        zIndex: 99999,
-
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-
         backgroundColor: "rgba(0,0,0,0.8)",
       }}
       onClick={onClose}
     >
       <div
+        className="relative animate-zoomIn"
         style={{
-          position: "relative",
           width: "fit-content",
           height: "fit-content",
           maxHeight: "90vh",
@@ -49,7 +41,6 @@ export default function ImagePreview({ src, name, onClose }: Props) {
           borderRadius: "12px",
           overflow: "hidden",
           boxShadow: "0 10px 30px rgba(0,0,0,0.3)",
-          transition: "transform 150ms ease, opacity 150ms ease",
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -64,9 +55,10 @@ export default function ImagePreview({ src, name, onClose }: Props) {
             width: 32,
             height: 32,
             borderRadius: "50%",
-            background: "black",
             color: "white",
+            background: "rgba(0,0,0,0.6)",
             border: "none",
+            cursor: "pointer",
           }}
         >
           ✕
@@ -76,14 +68,15 @@ export default function ImagePreview({ src, name, onClose }: Props) {
         <Image
           src={src}
           alt={name}
-          width={500}
-          height={400}
+          width={800}
+          height={600}
           style={{
             width: "100%",
-            height: "100%",
+            height: "auto",
             maxHeight: "90vh",
             maxWidth: "90vw",
             objectFit: "contain",
+            display: "block",
           }}
         />
 

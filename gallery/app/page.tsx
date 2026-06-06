@@ -19,8 +19,9 @@ export default function Page() {
 
   const [search, setSearch] = useState("");
 
-  const [selectedMonth, setSelectedMonth] = useState<string>("all");
   const [selectedYear, setSelectedYear] = useState<string>("all");
+  const [selectedMonth, setSelectedMonth] = useState<string>("all");
+  const [selectedDay, setSelectedDay] = useState<string>("all");
 
   // -----------------------------
   // DATE INFO
@@ -29,6 +30,7 @@ export default function Page() {
     return images.map((img) => {
       const d = new Date(img.lastModified);
       return {
+        day: d.getDate(),
         month: d.getMonth() + 1,
         year: d.getFullYear(),
       };
@@ -53,8 +55,23 @@ export default function Page() {
     ).sort((a, b) => a - b);
   }, [dateInfo, selectedYear]);
 
+  const days = useMemo(() => {
+    return Array.from(
+      new Set(
+        dateInfo
+          .filter((d) =>
+            selectedYear === "all" ? true : d.year === Number(selectedYear),
+          )
+          .filter((d) =>
+            selectedMonth === "all" ? true : d.month === Number(selectedMonth),
+          )
+          .map((d) => d.day),
+      ),
+    ).sort((a, b) => a - b);
+  }, [dateInfo, selectedYear, selectedMonth]);
+
   // -----------------------------
-  // SAFE VALUES (NO EFFECTS)
+  // SAFE VALUES
   // -----------------------------
   const safeYear =
     selectedYear !== "all" && !years.includes(Number(selectedYear))
@@ -65,6 +82,11 @@ export default function Page() {
     selectedMonth !== "all" && !months.includes(Number(selectedMonth))
       ? "all"
       : selectedMonth;
+
+  const safeDay =
+    selectedDay !== "all" && !days.includes(Number(selectedDay))
+      ? "all"
+      : selectedDay;
 
   // -----------------------------
   // FILTER
@@ -80,7 +102,9 @@ export default function Page() {
     const matchesMonth =
       safeMonth === "all" || date.getMonth() + 1 === Number(safeMonth);
 
-    return matchesSearch && matchesYear && matchesMonth;
+    const matchesDay = safeDay === "all" || date.getDate() === Number(safeDay);
+
+    return matchesSearch && matchesYear && matchesMonth && matchesDay;
   });
 
   // -----------------------------
@@ -134,16 +158,27 @@ export default function Page() {
       </div>
 
       {/* FILTERS */}
-      <div className="flex gap-2 p-2 border-b text-sm">
+      <div className="flex gap-2 p-2 border-b text-sm flex-wrap">
         {/* YEAR */}
         <select
           value={safeYear}
           onChange={(e) => setSelectedYear(e.target.value)}
           className="px-3 py-2 border rounded"
         >
-          <option value="all">All Years</option>
+          <option
+            value="all"
+            className="text-white"
+            style={{ background: "#222222" }}
+          >
+            All Years
+          </option>
           {years.map((y) => (
-            <option key={y} value={y}>
+            <option
+              key={y}
+              value={y}
+              className="text-white"
+              style={{ background: "#222222" }}
+            >
               {y}
             </option>
           ))}
@@ -155,10 +190,46 @@ export default function Page() {
           onChange={(e) => setSelectedMonth(e.target.value)}
           className="px-3 py-2 border rounded"
         >
-          <option value="all">All Months</option>
+          <option
+            value="all"
+            className="text-white"
+            style={{ background: "#222222" }}
+          >
+            All Months
+          </option>
           {months.map((m) => (
-            <option key={m} value={m}>
+            <option
+              key={m}
+              value={m}
+              className="text-white"
+              style={{ background: "#222222" }}
+            >
               {m.toString().padStart(2, "0")}
+            </option>
+          ))}
+        </select>
+
+        {/* DAY */}
+        <select
+          value={safeDay}
+          onChange={(e) => setSelectedDay(e.target.value)}
+          className="px-3 py-2 border rounded"
+        >
+          <option
+            value="all"
+            className="text-white"
+            style={{ background: "#222222" }}
+          >
+            All Days
+          </option>
+          {days.map((d) => (
+            <option
+              key={d}
+              value={d}
+              className="text-white"
+              style={{ background: "#222222" }}
+            >
+              {d.toString().padStart(2, "0")}
             </option>
           ))}
         </select>
@@ -167,8 +238,10 @@ export default function Page() {
       {/* SORT */}
       <div className="flex gap-2 p-2 text-sm">
         <button
-          className={`px-3 py-2 rounded ${
-            sortBy === "name" ? "bg-black text-white" : "bg-gray-600 text-white"
+          className={`px-3 py-2 rounded hover:bg-gray-700 ${
+            sortBy === "name"
+              ? "bg-gray-800 text-white"
+              : "bg-gray-600 text-white"
           }`}
           onClick={() => handleSort("name")}
         >
@@ -176,8 +249,10 @@ export default function Page() {
         </button>
 
         <button
-          className={`px-3 py-2 rounded ${
-            sortBy === "size" ? "bg-black text-white" : "bg-gray-600 text-white"
+          className={`px-3 py-2 rounded hover:bg-gray-700 ${
+            sortBy === "size"
+              ? "bg-gray-800 text-white"
+              : "bg-gray-600 text-white"
           }`}
           onClick={() => handleSort("size")}
         >
@@ -185,8 +260,10 @@ export default function Page() {
         </button>
 
         <button
-          className={`px-3 py-2 rounded ${
-            sortBy === "date" ? "bg-black text-white" : "bg-gray-600 text-white"
+          className={`px-3 py-2 rounded hover:bg-gray-700 ${
+            sortBy === "date"
+              ? "bg-gray-800 text-white"
+              : "bg-gray-600 text-white"
           }`}
           onClick={() => handleSort("date")}
         >
