@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Header from "@/components/header";
 import Gallery from "@/components/gallery";
 
@@ -22,6 +22,24 @@ export default function Page() {
   const [selectedYear, setSelectedYear] = useState<string>("all");
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
   const [selectedDay, setSelectedDay] = useState<string>("all");
+
+  // -----------------------------
+  // PREVENT BROWSER DROP NAVIGATION
+  // -----------------------------
+  useEffect(() => {
+    const preventDefault = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    window.addEventListener("dragover", preventDefault);
+    window.addEventListener("drop", preventDefault);
+
+    return () => {
+      window.removeEventListener("dragover", preventDefault);
+      window.removeEventListener("drop", preventDefault);
+    };
+  }, []);
 
   // -----------------------------
   // DATE INFO
@@ -71,25 +89,7 @@ export default function Page() {
   }, [dateInfo, selectedYear, selectedMonth]);
 
   // -----------------------------
-  // SAFE VALUES
-  // -----------------------------
-  const safeYear =
-    selectedYear !== "all" && !years.includes(Number(selectedYear))
-      ? "all"
-      : selectedYear;
-
-  const safeMonth =
-    selectedMonth !== "all" && !months.includes(Number(selectedMonth))
-      ? "all"
-      : selectedMonth;
-
-  const safeDay =
-    selectedDay !== "all" && !days.includes(Number(selectedDay))
-      ? "all"
-      : selectedDay;
-
-  // -----------------------------
-  // FILTER
+  // FILTERING
   // -----------------------------
   const filteredImages = images.filter((img) => {
     const date = new Date(img.lastModified);
@@ -97,18 +97,19 @@ export default function Page() {
     const matchesSearch = img.name.toLowerCase().includes(search.toLowerCase());
 
     const matchesYear =
-      safeYear === "all" || date.getFullYear() === Number(safeYear);
+      selectedYear === "all" || date.getFullYear() === Number(selectedYear);
 
     const matchesMonth =
-      safeMonth === "all" || date.getMonth() + 1 === Number(safeMonth);
+      selectedMonth === "all" || date.getMonth() + 1 === Number(selectedMonth);
 
-    const matchesDay = safeDay === "all" || date.getDate() === Number(safeDay);
+    const matchesDay =
+      selectedDay === "all" || date.getDate() === Number(selectedDay);
 
     return matchesSearch && matchesYear && matchesMonth && matchesDay;
   });
 
   // -----------------------------
-  // SORT
+  // SORTING
   // -----------------------------
   const sortedImages = [...filteredImages].sort((a, b) => {
     let compare = 0;
@@ -130,21 +131,82 @@ export default function Page() {
     }
   };
 
+  // -----------------------------
+  // FILE HANDLER (USED BY BOTH DROP + INPUT)
+  // -----------------------------
+  const handleFiles = (
+    fileList: FileList | File[],
+    mode: "replace" | "append" = "replace",
+  ) => {
+    const files = Array.from(fileList);
+
+    const newImages: ImageItem[] = files
+      .filter((file) => file.type.startsWith("image/"))
+      .map((file) => ({
+        src: URL.createObjectURL(file),
+        name: file.name,
+        size: file.size,
+        lastModified: file.lastModified,
+      }));
+
+    setImages((prev) =>
+      mode === "append" ? [...prev, ...newImages] : newImages,
+    );
+  };
+
+  // -----------------------------
+  // DROP HANDLER (FIXED)
+  // -----------------------------
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+
+    const items = e.dataTransfer.items;
+    if (!items) return;
+
+    const traverseFileTree = async (entry: any): Promise<File[]> => {
+      if (entry.isFile) {
+        return new Promise((resolve) => {
+          entry.file((file: File) => resolve([file]));
+        });
+      }
+
+      if (entry.isDirectory) {
+        const reader = entry.createReader();
+        let allEntries: any[] = [];
+
+        while (true) {
+          const entries: any[] = await new Promise((resolve) =>
+            reader.readEntries(resolve),
+          );
+
+          if (!entries.length) break;
+          allEntries = allEntries.concat(entries);
+        }
+
+        const nested = await Promise.all(allEntries.map(traverseFileTree));
+        return nested.flat();
+      }
+
+      return [];
+    };
+
+    const allFiles: File[] = [];
+
+    for (const item of items) {
+      const entry = item.webkitGetAsEntry?.();
+      if (entry) {
+        const files = await traverseFileTree(entry);
+        allFiles.push(...files);
+      }
+    }
+
+    handleFiles(allFiles, "replace");
+  };
+
   return (
     <div className="min-h-screen flex flex-col px-4">
       {/* HEADER */}
-      <Header
-        onFolderSelect={(files) => {
-          const mapped: ImageItem[] = files.map((file) => ({
-            src: URL.createObjectURL(file),
-            name: file.name,
-            size: file.size,
-            lastModified: file.lastModified,
-          }));
-
-          setImages(mapped);
-        }}
-      />
+      <Header onFolderSelect={handleFiles} />
 
       {/* SEARCH */}
       <div className="p-2 border-b">
@@ -159,76 +221,40 @@ export default function Page() {
 
       {/* FILTERS */}
       <div className="flex gap-2 p-2 border-b text-sm flex-wrap">
-        {/* YEAR */}
         <select
-          value={safeYear}
+          value={selectedYear}
           onChange={(e) => setSelectedYear(e.target.value)}
           className="px-3 py-2 border rounded"
         >
-          <option
-            value="all"
-            className="text-white"
-            style={{ background: "#222222" }}
-          >
-            All Years
-          </option>
+          <option value="all">All Years</option>
           {years.map((y) => (
-            <option
-              key={y}
-              value={y}
-              className="text-white"
-              style={{ background: "#222222" }}
-            >
+            <option key={y} value={y}>
               {y}
             </option>
           ))}
         </select>
 
-        {/* MONTH */}
         <select
-          value={safeMonth}
+          value={selectedMonth}
           onChange={(e) => setSelectedMonth(e.target.value)}
           className="px-3 py-2 border rounded"
         >
-          <option
-            value="all"
-            className="text-white"
-            style={{ background: "#222222" }}
-          >
-            All Months
-          </option>
+          <option value="all">All Months</option>
           {months.map((m) => (
-            <option
-              key={m}
-              value={m}
-              className="text-white"
-              style={{ background: "#222222" }}
-            >
+            <option key={m} value={m}>
               {m.toString().padStart(2, "0")}
             </option>
           ))}
         </select>
 
-        {/* DAY */}
         <select
-          value={safeDay}
+          value={selectedDay}
           onChange={(e) => setSelectedDay(e.target.value)}
           className="px-3 py-2 border rounded"
         >
-          <option
-            value="all"
-            className="text-white"
-            style={{ background: "#222222" }}
-          >
-            All Days
-          </option>
+          <option value="all">All Days</option>
           {days.map((d) => (
-            <option
-              key={d}
-              value={d}
-              className="text-white"
-              style={{ background: "#222222" }}
-            >
+            <option key={d} value={d}>
               {d.toString().padStart(2, "0")}
             </option>
           ))}
@@ -277,9 +303,38 @@ export default function Page() {
         images
       </div>
 
-      {/* GALLERY */}
-      <main className="flex-1 p-4">
-        <Gallery images={sortedImages} />
+      {/* GALLERY + DROP AREA */}
+      <main
+        className="flex-1 p-4"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={handleDrop}
+      >
+        {images.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-[60vh] border-2 border-dashed border-gray-600 rounded-lg text-gray-300">
+            <p className="mb-4 text-sm">Drop a folder here or select one</p>
+
+            <label className="px-4 py-2 bg-gray-600 text-white rounded cursor-pointer hover:bg-gray-700">
+              Select Folder
+              <input
+                type="file"
+                webkitdirectory="true"
+                multiple
+                hidden
+                onChange={(e) =>
+                  e.target.files && handleFiles(e.target.files, "replace")
+                }
+              />
+            </label>
+          </div>
+        ) : (
+          <>
+            <div className="mb-3 text-xs text-gray-400">
+              Drag & drop images or folders here
+            </div>
+
+            <Gallery images={sortedImages} />
+          </>
+        )}
       </main>
     </div>
   );

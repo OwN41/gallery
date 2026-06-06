@@ -21,7 +21,7 @@ export default function Header({ onFolderSelect }: Props) {
     const images: File[] = [];
 
     // Process in chunks so UI doesn't freeze
-    const CHUNK_SIZE = 200;
+    const CHUNK_SIZE = 100;
     let index = 0;
 
     const processChunk = () => {
@@ -57,25 +57,6 @@ export default function Header({ onFolderSelect }: Props) {
           Loading... {count} images found
         </div>
       )}
-
-      {/* folder picker */}
-      <label
-        className={`px-4 py-2 rounded cursor-pointer text-white transition ${
-          loading
-            ? "bg-gray-500 cursor-not-allowed"
-            : "bg-gray-600 hover:bg-gray-700"
-        }`}
-      >
-        Select Folder
-        <input
-          type="file"
-          webkitdirectory="true"
-          multiple
-          hidden
-          disabled={loading}
-          onChange={handleChange}
-        />
-      </label>
     </header>
   );
 }
