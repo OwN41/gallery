@@ -11,6 +11,7 @@ import {
   loadFilterStateFromDB,
   type FilterState,
 } from "@/lib/indexeddb";
+import { toast } from "react-toastify";
 
 type ImageItem = {
   file: File;
@@ -413,6 +414,7 @@ export default function Page() {
                 onClick={async () => {
                   await clearFilesFromDB();
                   setImages([]);
+                  toast.info("Saved images cleared");
                 }}
                 className="text-xs px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700"
               >

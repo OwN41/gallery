@@ -1,5 +1,5 @@
 import "./globals.css";
-import { ToastContainer, Slide } from "react-toastify";
+import { Slide, ToastContainer, Zoom } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
 export default function RootLayout({
@@ -14,9 +14,9 @@ export default function RootLayout({
 
         <ToastContainer
           position="bottom-right"
-          autoClose={2000}
+          autoClose={500}
           limit={3}
-          hideProgressBar={false}
+          hideProgressBar
           newestOnTop
           closeOnClick
           rtl={false}
@@ -25,6 +25,8 @@ export default function RootLayout({
           pauseOnHover={false}
           theme="dark"
           transition={Slide}
+          closeButton={false}
+          icon={false}
         />
       </body>
     </html>

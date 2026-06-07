@@ -66,7 +66,7 @@ export default function ImagePreview({ src, name, onClose }: Props) {
           }),
         ])
         .then(() => {
-          toast.success("Image copied to clipboard!");
+          toast.success("Copied image to clipboard!");
         });
     } catch (error) {
       console.error("Copy failed:", error);

@@ -74,7 +74,7 @@ export default function ImageCard({
           }),
         ])
         .then(() => {
-          toast.success("Image copied to clipboard!");
+          toast.success("Copied image to clipboard!");
         });
     } catch (error) {
       console.error("Copy failed:", error);
