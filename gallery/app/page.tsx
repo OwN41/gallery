@@ -3,7 +3,11 @@
 import { useMemo, useState, useEffect } from "react";
 import Header from "@/components/header";
 import Gallery from "@/components/gallery";
-import { saveFilesToDB, loadFilesFromDB, clearFilesFromDB } from "@/lib/indexeddb";
+import {
+  saveFilesToDB,
+  loadFilesFromDB,
+  clearFilesFromDB,
+} from "@/lib/indexeddb";
 
 type ImageItem = {
   file: File;
@@ -177,8 +181,7 @@ export default function Page() {
       }));
 
     setImages((prev) => {
-      const updated =
-        mode === "append" ? [...prev, ...newImages] : newImages;
+      const updated = mode === "append" ? [...prev, ...newImages] : newImages;
       // Save to IndexedDB
       saveFilesToDB(updated.map((img) => img.file)).catch((error) =>
         console.error("Failed to save files:", error),
@@ -205,7 +208,9 @@ export default function Page() {
       };
     };
 
-    const traverseFileTree = async (entry: FileSystemEntry): Promise<File[]> => {
+    const traverseFileTree = async (
+      entry: FileSystemEntry,
+    ): Promise<File[]> => {
       if (entry.isFile) {
         return new Promise((resolve) => {
           entry.file?.((file: File) => resolve([file]));
@@ -252,19 +257,8 @@ export default function Page() {
       {/* HEADER */}
       <Header onFolderSelect={handleFiles} />
 
-      {/* SEARCH */}
-      <div className="p-2 border-b">
-        <input
-          type="text"
-          placeholder="Search images..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full px-3 py-2 border rounded-lg text-sm"
-        />
-      </div>
-
-      {/* FILTERS */}
-      <div className="flex gap-2 p-2 border-b text-sm flex-wrap">
+      {/* SEARCH + FILTERS */}
+      <div className="flex gap-2 p-2 border-b text-sm flex-wrap items-center">
         <select
           value={selectedYear}
           onChange={(e) => setSelectedYear(e.target.value)}
@@ -303,6 +297,14 @@ export default function Page() {
             </option>
           ))}
         </select>
+
+        <input
+          type="text"
+          placeholder="Search images..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="px-3 py-2 border rounded-lg text-sm flex-1 min-w-[200px]"
+        />
       </div>
 
       {/* SORT */}
@@ -343,8 +345,8 @@ export default function Page() {
 
       {/* COUNT */}
       <div className="px-2 py-2 text-sm text-white border-b">
-        Showing <span className="font-semibold">{sortedImages.length}</span>{" "}
-        images
+        <span className="font-semibold">{sortedImages.length}</span> images
+        loaded
       </div>
 
       {/* GALLERY + DROP AREA */}

@@ -56,3 +56,22 @@ body {
 .animate-fadeIn {
   animation: fadeIn 150ms ease-out;
 }
+
+/* Select dropdown styling */
+select {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+select option {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+/* Input styling */
+input[type="text"],
+input[type="file"] {
+  background-color: var(--background);
+  color: var(--foreground);
+  border-color: var(--foreground);
+}
