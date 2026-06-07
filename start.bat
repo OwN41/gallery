@@ -9,7 +9,7 @@ call npm install --silent
 echo Gallery Application starting on http://localhost:3000
 echo Press Ctrl+C to stop the application
 
-call npm run start
+call npm run prod
 
 echo.
 echo Press Enter to close
