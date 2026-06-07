@@ -78,7 +78,13 @@ export default function ImageCard({
   };
 
   return (
-    <div className="relative rounded-xl overflow-hidden shadow-sm bg-white w-full p-2">
+    <div
+      className="relative rounded-xl overflow-hidden shadow-sm w-full p-2 border-2 border-gray-800"
+      style={{
+        backgroundColor: "#333333",
+        borderColor: "#444444",
+      }}
+    >
       <div
         className="aspect-square cursor-pointer overflow-hidden rounded-lg"
         onClick={onOpen}
@@ -94,8 +100,8 @@ export default function ImageCard({
       <div className="pt-2 px-1">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="text-xs text-black truncate">{name}</p>
-            <p className="text-[10px] text-gray-500">
+            <p className="text-xs text-white truncate">{name}</p>
+            <p className="text-[10px] text-gray-400">
               {formatSize(size)} • {formatDate(lastModified)}
             </p>
           </div>

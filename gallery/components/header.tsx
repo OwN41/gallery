@@ -63,7 +63,7 @@ export default function Header({ onFolderSelect }: Props) {
         className={`px-4 py-2 rounded cursor-pointer text-white transition ${
           loading
             ? "bg-gray-500 cursor-not-allowed"
-            : "bg-gray-600 hover:bg-gray-700"
+            : "bg-gray-600 hover:bg-gray-800"
         }`}
       >
         Select Folder

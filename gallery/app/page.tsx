@@ -341,9 +341,9 @@ export default function Page() {
       {/* SORT */}
       <div className="flex gap-2 p-2 text-sm">
         <button
-          className={`px-3 py-2 rounded hover:bg-gray-700 ${
+          className={`px-3 py-2 rounded hover:bg-gray-800 ${
             sortBy === "name"
-              ? "bg-gray-800 text-white"
+              ? "bg-gray-700 text-white"
               : "bg-gray-600 text-white"
           }`}
           onClick={() => handleSort("name")}
@@ -352,9 +352,9 @@ export default function Page() {
         </button>
 
         <button
-          className={`px-3 py-2 rounded hover:bg-gray-700 ${
+          className={`px-3 py-2 rounded hover:bg-gray-800 ${
             sortBy === "size"
-              ? "bg-gray-800 text-white"
+              ? "bg-gray-700 text-white"
               : "bg-gray-600 text-white"
           }`}
           onClick={() => handleSort("size")}
@@ -363,9 +363,9 @@ export default function Page() {
         </button>
 
         <button
-          className={`px-3 py-2 rounded hover:bg-gray-700 ${
+          className={`px-3 py-2 rounded hover:bg-gray-800 ${
             sortBy === "date"
-              ? "bg-gray-800 text-white"
+              ? "bg-gray-700 text-white"
               : "bg-gray-600 text-white"
           }`}
           onClick={() => handleSort("date")}
