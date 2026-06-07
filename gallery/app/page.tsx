@@ -7,6 +7,9 @@ import {
   saveFilesToDB,
   loadFilesFromDB,
   clearFilesFromDB,
+  saveFilterStateToDB,
+  loadFilterStateFromDB,
+  type FilterState,
 } from "@/lib/indexeddb";
 
 type ImageItem = {
@@ -29,11 +32,15 @@ export default function Page() {
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
   const [selectedDay, setSelectedDay] = useState<string>("all");
 
-  // Load saved files on mount
+  // Load saved files and filter state on mount
   useEffect(() => {
     const loadSaved = async () => {
       try {
-        const savedFiles = await loadFilesFromDB();
+        const [savedFiles, savedFilters] = await Promise.all([
+          loadFilesFromDB(),
+          loadFilterStateFromDB(),
+        ]);
+
         if (savedFiles.length > 0) {
           const newImages: ImageItem[] = savedFiles
             .filter((file) => file.type.startsWith("image/"))
@@ -45,8 +52,17 @@ export default function Page() {
             }));
           setImages(newImages);
         }
+
+        if (savedFilters) {
+          setSearch(savedFilters.search);
+          setSelectedYear(savedFilters.selectedYear);
+          setSelectedMonth(savedFilters.selectedMonth);
+          setSelectedDay(savedFilters.selectedDay);
+          setSortBy(savedFilters.sortBy);
+          setSortDir(savedFilters.sortDir);
+        }
       } catch (error) {
-        console.error("Failed to load saved files:", error);
+        console.error("Failed to load saved data:", error);
       } finally {
         setIsLoading(false);
       }
@@ -71,6 +87,21 @@ export default function Page() {
       window.removeEventListener("drop", preventDefault);
     };
   }, []);
+
+  // Save filter state whenever filters change
+  useEffect(() => {
+    const filterState: FilterState = {
+      search,
+      selectedYear,
+      selectedMonth,
+      selectedDay,
+      sortBy,
+      sortDir,
+    };
+    saveFilterStateToDB(filterState).catch((error) =>
+      console.error("Failed to save filter state:", error),
+    );
+  }, [search, selectedYear, selectedMonth, selectedDay, sortBy, sortDir]);
 
   // -----------------------------
   // DATE INFO
