@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { Copy } from "lucide-react";
+import { toast } from "react-toastify";
 
 type Props = {
   src: string;
@@ -66,11 +67,15 @@ export default function ImageCard({
         }, "image/png");
       });
 
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          "image/png": pngBlob,
-        }),
-      ]);
+      await navigator.clipboard
+        .write([
+          new ClipboardItem({
+            "image/png": pngBlob,
+          }),
+        ])
+        .then(() => {
+          toast.success("Image copied to clipboard!");
+        });
     } catch (error) {
       console.error("Copy failed:", error);
       alert("Failed to copy image.");

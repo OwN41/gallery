@@ -287,7 +287,6 @@ export default function Page() {
     <div className="min-h-screen flex flex-col px-4">
       {/* HEADER */}
       <Header onFolderSelect={handleFiles} />
-
       {/* SEARCH + FILTERS */}
       <div className="flex gap-2 p-2 border-b text-sm flex-wrap items-center">
         <select
@@ -337,7 +336,6 @@ export default function Page() {
           className="px-3 py-2 border rounded-lg text-sm flex-1 min-w-[200px]"
         />
       </div>
-
       {/* SORT */}
       <div className="flex gap-2 p-2 text-sm">
         <button
@@ -373,13 +371,11 @@ export default function Page() {
           Date {sortBy === "date" ? (sortDir === "asc" ? "↑" : "↓") : ""}
         </button>
       </div>
-
       {/* COUNT */}
       <div className="px-2 py-2 text-sm text-white border-b">
         <span className="font-semibold">{sortedImages.length}</span> images
         loaded
       </div>
-
       {/* GALLERY + DROP AREA */}
       <main
         className="flex-1 p-4"
