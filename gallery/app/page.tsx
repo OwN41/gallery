@@ -3,6 +3,7 @@
 import { useMemo, useState, useEffect } from "react";
 import Header from "@/components/header";
 import Gallery from "@/components/gallery";
+import { saveFilesToDB, loadFilesFromDB, clearFilesFromDB } from "@/lib/indexeddb";
 
 type ImageItem = {
   file: File;
@@ -12,6 +13,7 @@ type ImageItem = {
 };
 
 export default function Page() {
+  const [isLoading, setIsLoading] = useState(true);
   const [images, setImages] = useState<ImageItem[]>([]);
 
   const [sortBy, setSortBy] = useState<"name" | "size" | "date">("name");
@@ -23,7 +25,32 @@ export default function Page() {
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
   const [selectedDay, setSelectedDay] = useState<string>("all");
 
-  // -----------------------------
+  // Load saved files on mount
+  useEffect(() => {
+    const loadSaved = async () => {
+      try {
+        const savedFiles = await loadFilesFromDB();
+        if (savedFiles.length > 0) {
+          const newImages: ImageItem[] = savedFiles
+            .filter((file) => file.type.startsWith("image/"))
+            .map((file) => ({
+              file,
+              name: file.name,
+              size: file.size,
+              lastModified: file.lastModified,
+            }));
+          setImages(newImages);
+        }
+      } catch (error) {
+        console.error("Failed to load saved files:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadSaved();
+  }, []);
+
   // PREVENT BROWSER DROP NAVIGATION
   // -----------------------------
   useEffect(() => {
@@ -134,7 +161,7 @@ export default function Page() {
   // -----------------------------
   // FILE HANDLER (USED BY BOTH DROP + INPUT)
   // -----------------------------
-  const handleFiles = (
+  const handleFiles = async (
     fileList: FileList | File[],
     mode: "replace" | "append" = "replace",
   ) => {
@@ -149,9 +176,15 @@ export default function Page() {
         lastModified: file.lastModified,
       }));
 
-    setImages((prev) =>
-      mode === "append" ? [...prev, ...newImages] : newImages,
-    );
+    setImages((prev) => {
+      const updated =
+        mode === "append" ? [...prev, ...newImages] : newImages;
+      // Save to IndexedDB
+      saveFilesToDB(updated.map((img) => img.file)).catch((error) =>
+        console.error("Failed to save files:", error),
+      );
+      return updated;
+    });
   };
 
   // -----------------------------
@@ -163,19 +196,30 @@ export default function Page() {
     const items = e.dataTransfer.items;
     if (!items) return;
 
-    const traverseFileTree = async (entry: any): Promise<File[]> => {
+    type FileSystemEntry = {
+      isFile: boolean;
+      isDirectory: boolean;
+      file?: (callback: (file: File) => void) => void;
+      createReader?: () => {
+        readEntries: (callback: (entries: FileSystemEntry[]) => void) => void;
+      };
+    };
+
+    const traverseFileTree = async (entry: FileSystemEntry): Promise<File[]> => {
       if (entry.isFile) {
         return new Promise((resolve) => {
-          entry.file((file: File) => resolve([file]));
+          entry.file?.((file: File) => resolve([file]));
         });
       }
 
       if (entry.isDirectory) {
-        const reader = entry.createReader();
-        let allEntries: any[] = [];
+        const reader = entry.createReader?.();
+        if (!reader) return [];
+
+        let allEntries: FileSystemEntry[] = [];
 
         while (true) {
-          const entries: any[] = await new Promise((resolve) =>
+          const entries: FileSystemEntry[] = await new Promise((resolve) =>
             reader.readEntries(resolve),
           );
 
@@ -193,7 +237,7 @@ export default function Page() {
     const allFiles: File[] = [];
 
     for (const item of items) {
-      const entry = item.webkitGetAsEntry?.();
+      const entry = item.webkitGetAsEntry?.() as FileSystemEntry | null;
       if (entry) {
         const files = await traverseFileTree(entry);
         allFiles.push(...files);
@@ -309,7 +353,11 @@ export default function Page() {
         onDragOver={(e) => e.preventDefault()}
         onDrop={handleDrop}
       >
-        {images.length === 0 ? (
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center h-[60vh] text-gray-400">
+            <p className="text-sm">Loading saved images...</p>
+          </div>
+        ) : images.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-[60vh] border-2 border-dashed border-gray-600 rounded-lg text-gray-300">
             <p className="mb-4 text-sm">Drop a folder here or select one</p>
 
@@ -328,8 +376,19 @@ export default function Page() {
           </div>
         ) : (
           <>
-            <div className="mb-3 text-xs text-gray-400">
-              Drag & drop images or folders here
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-xs text-gray-400">
+                Drag & drop images or folders here
+              </div>
+              <button
+                onClick={async () => {
+                  await clearFilesFromDB();
+                  setImages([]);
+                }}
+                className="text-xs px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700"
+              >
+                Clear Saved
+              </button>
             </div>
 
             <Gallery images={sortedImages} />

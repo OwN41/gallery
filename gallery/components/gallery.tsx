@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import ImageCard from "./imageCard";
 import ImagePreview from "./imagePreview";
 
@@ -22,23 +22,33 @@ export default function Gallery({ images }: GalleryProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const urlCacheRef = useRef<Map<string, string>>(new Map());
 
-  // Lazy-load object URL when needed
-  const getImageUrl = useCallback((item: ImageItem): string => {
-    const key = `${item.file.name}-${item.file.lastModified}`;
-    if (!urlCacheRef.current.has(key)) {
-      const url = URL.createObjectURL(item.file);
-      urlCacheRef.current.set(key, url);
-    }
-    return urlCacheRef.current.get(key)!;
-  }, []);
+  // Get or create URL for an image
+  const getUrl = (img: ImageItem): string => {
+    const key = `${img.file.name}-${img.file.lastModified}`;
 
-  // Cleanup URLs on unmount
+    // If already cached, return it
+    if (urlCacheRef.current.has(key)) {
+      return urlCacheRef.current.get(key)!;
+    }
+
+    // Create URL synchronously and cache it
+    const url = URL.createObjectURL(img.file);
+    urlCacheRef.current.set(key, url);
+    return url;
+  };
+
+  // Cleanup URLs only on unmount
   useEffect(() => {
     return () => {
       urlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
       urlCacheRef.current.clear();
     };
   }, []);
+
+  // Scroll to top when page changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [currentPage]);
 
   // Calculate pagination
   const totalPages = Math.ceil(images.length / ITEMS_PER_PAGE);
@@ -55,7 +65,7 @@ export default function Gallery({ images }: GalleryProps) {
               {paginatedImages.map((img) => (
                 <ImageCard
                   key={`${img.file.name}-${img.file.lastModified}`}
-                  src={getImageUrl(img)}
+                  src={getUrl(img)}
                   name={img.name}
                   size={img.size}
                   lastModified={img.lastModified}
@@ -100,7 +110,7 @@ export default function Gallery({ images }: GalleryProps) {
 
       {preview && (
         <ImagePreview
-          src={getImageUrl(preview)}
+          src={getUrl(preview)}
           name={preview.name}
           onClose={() => setPreview(null)}
         />
