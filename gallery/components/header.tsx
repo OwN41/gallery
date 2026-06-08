@@ -66,7 +66,7 @@ export default function Header({ onFolderSelect }: Readonly<Props>) {
             : "bg-gray-600 hover:bg-gray-800"
         }`}
       >
-        Select Folder
+        <span>Select Folder</span>
         <input
           type="file"
           webkitdirectory="true"

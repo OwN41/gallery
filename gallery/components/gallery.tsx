@@ -70,7 +70,7 @@ export default function Gallery({ images }: Readonly<GalleryProps>) {
   // Scroll to top smoothly when page changes
   useEffect(() => {
     requestAnimationFrame(() => {
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      globalThis.scrollTo({ top: 0, behavior: "smooth" });
     });
   }, [currentPage]);
 

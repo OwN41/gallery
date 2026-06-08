@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Play } from "lucide-react";
+import { Download, Play } from "lucide-react";
 import { toast } from "react-toastify";
 
 type Props = {
@@ -29,16 +29,21 @@ export default function VideoCard({
   size,
   lastModified,
   onOpen,
-}: Props) {
-  const handleCopy = async (e: React.MouseEvent<HTMLButtonElement>) => {
+}: Readonly<Props>) {
+  const handleDownload = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
 
     try {
-      await navigator.clipboard.writeText(name);
-      toast.success("Copied video name to clipboard!");
+      const link = document.createElement("a");
+      link.href = src;
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success("Downloading video...");
     } catch (error) {
-      console.error("Copy failed:", error);
-      alert("Failed to copy video name.");
+      console.error("Download failed:", error);
+      alert("Failed to download video.");
     }
   };
 
@@ -50,9 +55,11 @@ export default function VideoCard({
         borderColor: "#444444",
       }}
     >
-      <div
-        className="aspect-square cursor-pointer overflow-hidden rounded-lg relative"
+      <button
+        type="button"
+        className="aspect-square cursor-pointer overflow-hidden rounded-lg relative w-full"
         onClick={onOpen}
+        aria-label={`Open preview for ${name}`}
       >
         <video
           src={src}
@@ -66,7 +73,7 @@ export default function VideoCard({
             <Play size={22} className="text-white" fill="currentColor" />
           </div>
         </div>
-      </div>
+      </button>
 
       <div className="pt-2 px-1">
         <div className="flex items-start justify-between gap-2">
@@ -78,11 +85,11 @@ export default function VideoCard({
           </div>
 
           <button
-            onClick={handleCopy}
+            onClick={handleDownload}
             className="shrink-0 rounded-md bg-gray-600 p-2 text-white shadow-sm hover:bg-gray-700"
-            title="Copy video name"
+            title="Download video"
           >
-            <Copy size={14} />
+            <Download size={14} />
           </button>
         </div>
       </div>

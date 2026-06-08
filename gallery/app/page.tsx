@@ -13,22 +13,77 @@ import {
 } from "@/lib/indexeddb";
 import { toast } from "react-toastify";
 
-type DirectoryInputAttributes = React.InputHTMLAttributes<HTMLInputElement> & {
-  webkitdirectory?: "true";
-};
-
-type ImageItem = {
+type MediaItem = {
   file: File;
   name: string;
   size: number;
   lastModified: number;
 };
 
+type SortField = "name" | "size" | "date";
+
+type FileSystemEntry = {
+  isFile: boolean;
+  isDirectory: boolean;
+  file?: (callback: (file: File) => void) => void;
+  createReader?: () => {
+    readEntries: (callback: (entries: FileSystemEntry[]) => void) => void;
+  };
+};
+
+const isSupportedMedia = (file: File) =>
+  file.type.startsWith("image/") || file.type.startsWith("video/");
+
+const mapFilesToMediaItems = (files: File[]) =>
+  files.filter(isSupportedMedia).map((file) => ({
+    file,
+    name: file.name,
+    size: file.size,
+    lastModified: file.lastModified,
+  }));
+
+const getSortIndicator = (
+  sortBy: SortField,
+  sortDir: "asc" | "desc",
+  field: SortField,
+) => {
+  if (sortBy !== field) return "";
+  return sortDir === "asc" ? "↑" : "↓";
+};
+
+const readFileFromEntry = (entry: FileSystemEntry): Promise<File[]> =>
+  new Promise((resolve) => {
+    entry.file?.((file: File) => resolve([file]));
+  });
+
+const readEntriesBatch = (reader: {
+  readEntries: (callback: (entries: FileSystemEntry[]) => void) => void;
+}): Promise<FileSystemEntry[]> =>
+  new Promise((resolve) => reader.readEntries(resolve));
+
+const traverseFileTree = async (entry: FileSystemEntry): Promise<File[]> => {
+  if (entry.isFile) return readFileFromEntry(entry);
+  if (!entry.isDirectory) return [];
+
+  const reader = entry.createReader?.();
+  if (!reader) return [];
+
+  const allEntries: FileSystemEntry[] = [];
+  while (true) {
+    const entries = await readEntriesBatch(reader);
+    if (!entries.length) break;
+    allEntries.push(...entries);
+  }
+
+  const nested = await Promise.all(allEntries.map(traverseFileTree));
+  return nested.flat();
+};
+
 export default function Page() {
   const [isLoading, setIsLoading] = useState(true);
-  const [images, setImages] = useState<ImageItem[]>([]);
+  const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
 
-  const [sortBy, setSortBy] = useState<"name" | "size" | "date">("name");
+  const [sortBy, setSortBy] = useState<SortField>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   const [search, setSearch] = useState("");
@@ -47,19 +102,7 @@ export default function Page() {
         ]);
 
         if (savedFiles.length > 0) {
-          const newImages: ImageItem[] = savedFiles
-            .filter(
-              (file) =>
-                file.type.startsWith("image/") ||
-                file.type.startsWith("video/"),
-            )
-            .map((file) => ({
-              file,
-              name: file.name,
-              size: file.size,
-              lastModified: file.lastModified,
-            }));
-          setImages(newImages);
+          setMediaItems(mapFilesToMediaItems(savedFiles));
         }
 
         if (savedFilters) {
@@ -116,7 +159,7 @@ export default function Page() {
   // DATE INFO
   // -----------------------------
   const dateInfo = useMemo(() => {
-    return images.map((img) => {
+    return mediaItems.map((img) => {
       const d = new Date(img.lastModified);
       return {
         day: d.getDate(),
@@ -124,7 +167,7 @@ export default function Page() {
         year: d.getFullYear(),
       };
     });
-  }, [images]);
+  }, [mediaItems]);
 
   const years = useMemo(() => {
     return Array.from(new Set(dateInfo.map((d) => d.year))).sort(
@@ -162,7 +205,7 @@ export default function Page() {
   // -----------------------------
   // FILTERING
   // -----------------------------
-  const filteredImages = images.filter((img) => {
+  const filteredMedia = mediaItems.filter((img) => {
     const date = new Date(img.lastModified);
 
     const matchesSearch = img.name.toLowerCase().includes(search.toLowerCase());
@@ -182,7 +225,7 @@ export default function Page() {
   // -----------------------------
   // SORTING
   // -----------------------------
-  const sortedImages = [...filteredImages].sort((a, b) => {
+  const sortedMedia = [...filteredMedia].sort((a, b) => {
     let compare = 0;
 
     if (sortBy === "size") compare = a.size - b.size;
@@ -193,7 +236,7 @@ export default function Page() {
     return compare * dir;
   });
 
-  const handleSort = (field: "name" | "size" | "date") => {
+  const handleSort = (field: SortField) => {
     if (sortBy === field) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
@@ -205,26 +248,17 @@ export default function Page() {
   // -----------------------------
   // FILE HANDLER (USED BY BOTH DROP + INPUT)
   // -----------------------------
-  const handleFiles = async (
+  const handleFiles = (
     fileList: FileList | File[],
     mode: "replace" | "append" = "replace",
   ) => {
     const files = Array.from(fileList);
 
-    const newImages: ImageItem[] = files
-      .filter(
-        (file) =>
-          file.type.startsWith("image/") || file.type.startsWith("video/"),
-      )
-      .map((file) => ({
-        file,
-        name: file.name,
-        size: file.size,
-        lastModified: file.lastModified,
-      }));
+    const newMediaItems = mapFilesToMediaItems(files);
 
-    setImages((prev) => {
-      const updated = mode === "append" ? [...prev, ...newImages] : newImages;
+    setMediaItems((prev) => {
+      const updated =
+        mode === "append" ? [...prev, ...newMediaItems] : newMediaItems;
       // Save to IndexedDB
       saveFilesToDB(updated.map((img) => img.file)).catch((error) =>
         console.error("Failed to save files:", error),
@@ -242,46 +276,6 @@ export default function Page() {
     const items = e.dataTransfer.items;
     if (!items) return;
 
-    type FileSystemEntry = {
-      isFile: boolean;
-      isDirectory: boolean;
-      file?: (callback: (file: File) => void) => void;
-      createReader?: () => {
-        readEntries: (callback: (entries: FileSystemEntry[]) => void) => void;
-      };
-    };
-
-    const traverseFileTree = async (
-      entry: FileSystemEntry,
-    ): Promise<File[]> => {
-      if (entry.isFile) {
-        return new Promise((resolve) => {
-          entry.file?.((file: File) => resolve([file]));
-        });
-      }
-
-      if (entry.isDirectory) {
-        const reader = entry.createReader?.();
-        if (!reader) return [];
-
-        let allEntries: FileSystemEntry[] = [];
-
-        while (true) {
-          const entries: FileSystemEntry[] = await new Promise((resolve) =>
-            reader.readEntries(resolve),
-          );
-
-          if (!entries.length) break;
-          allEntries = allEntries.concat(entries);
-        }
-
-        const nested = await Promise.all(allEntries.map(traverseFileTree));
-        return nested.flat();
-      }
-
-      return [];
-    };
-
     const allFiles: File[] = [];
 
     for (const item of items) {
@@ -293,6 +287,59 @@ export default function Page() {
     }
 
     handleFiles(allFiles, "replace");
+  };
+
+  const mainContent = () => {
+    if (isLoading) {
+      return (
+        <div className="flex flex-col items-center justify-center h-[60vh] text-gray-400">
+          <p className="text-sm">Loading saved media...</p>
+        </div>
+      );
+    }
+
+    if (mediaItems.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center h-[60vh] border-2 border-dashed border-gray-600 rounded-lg text-gray-300">
+          <p className="mb-4 text-sm">Drop a folder here or select one</p>
+
+          <label className="px-4 py-2 bg-gray-600 text-white rounded cursor-pointer hover:bg-gray-700">
+            <span>Select Folder</span>
+            <input
+              type="file"
+              webkitdirectory="true"
+              multiple
+              hidden
+              onChange={(e) =>
+                e.target.files && handleFiles(e.target.files, "replace")
+              }
+            />
+          </label>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-xs text-gray-400">
+            Drag & drop images/videos or folders here
+          </div>
+          <button
+            onClick={async () => {
+              await clearFilesFromDB();
+              setMediaItems([]);
+              toast.info("Saved media cleared");
+            }}
+            className="text-xs px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700"
+          >
+            Clear Saved
+          </button>
+        </div>
+
+        <Gallery images={sortedMedia} />
+      </>
+    );
   };
 
   return (
@@ -345,7 +392,7 @@ export default function Page() {
           placeholder="Search media..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="px-3 py-2 border rounded-lg text-sm flex-1 min-w-[200px]"
+          className="px-3 py-2 border rounded-lg text-sm flex-1 min-w-50"
         />
       </div>
       {/* SORT */}
@@ -358,7 +405,7 @@ export default function Page() {
           }`}
           onClick={() => handleSort("name")}
         >
-          Name {sortBy === "name" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+          Name {getSortIndicator(sortBy, sortDir, "name")}
         </button>
 
         <button
@@ -369,7 +416,7 @@ export default function Page() {
           }`}
           onClick={() => handleSort("size")}
         >
-          Size {sortBy === "size" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+          Size {getSortIndicator(sortBy, sortDir, "size")}
         </button>
 
         <button
@@ -380,13 +427,12 @@ export default function Page() {
           }`}
           onClick={() => handleSort("date")}
         >
-          Date {sortBy === "date" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+          Date {getSortIndicator(sortBy, sortDir, "date")}
         </button>
       </div>
       {/* COUNT */}
       <div className="px-2 py-2 text-sm text-white border-b">
-        <span className="font-semibold">{sortedImages.length}</span> items
-        loaded
+        <span className="font-semibold">{sortedMedia.length}</span> items loaded
       </div>
       {/* GALLERY + DROP AREA */}
       <main
@@ -394,49 +440,7 @@ export default function Page() {
         onDragOver={(e) => e.preventDefault()}
         onDrop={handleDrop}
       >
-        {isLoading ? (
-          <div className="flex flex-col items-center justify-center h-[60vh] text-gray-400">
-            <p className="text-sm">Loading saved media...</p>
-          </div>
-        ) : images.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-[60vh] border-2 border-dashed border-gray-600 rounded-lg text-gray-300">
-            <p className="mb-4 text-sm">Drop a folder here or select one</p>
-
-            <label className="px-4 py-2 bg-gray-600 text-white rounded cursor-pointer hover:bg-gray-700">
-              Select Folder
-              <input
-                {...({
-                  type: "file",
-                  webkitdirectory: "true",
-                  multiple: true,
-                  hidden: true,
-                  onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
-                    e.target.files && handleFiles(e.target.files, "replace"),
-                } satisfies DirectoryInputAttributes)}
-              />
-            </label>
-          </div>
-        ) : (
-          <>
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-xs text-gray-400">
-                Drag & drop images/videos or folders here
-              </div>
-              <button
-                onClick={async () => {
-                  await clearFilesFromDB();
-                  setImages([]);
-                  toast.info("Saved media cleared");
-                }}
-                className="text-xs px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700"
-              >
-                Clear Saved
-              </button>
-            </div>
-
-            <Gallery images={sortedImages} />
-          </>
-        )}
+        {mainContent()}
       </main>
     </div>
   );
