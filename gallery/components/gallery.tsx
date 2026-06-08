@@ -3,8 +3,10 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import ImageCard from "./imageCard";
 import ImagePreview from "./imagePreview";
+import VideoCard from "./videoCard";
+import VideoPreview from "./videoPreview";
 
-type ImageItem = {
+type MediaItem = {
   file: File;
   name: string;
   size: number;
@@ -14,18 +16,17 @@ type ImageItem = {
 const ITEMS_PER_PAGE = 24;
 
 interface GalleryProps {
-  images: ImageItem[];
+  images: MediaItem[];
 }
 
-export default function Gallery({ images }: GalleryProps) {
-  const [preview, setPreview] = useState<ImageItem | null>(null);
+export default function Gallery({ images }: Readonly<GalleryProps>) {
+  const [preview, setPreview] = useState<MediaItem | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [urlMap, setUrlMap] = useState<Map<string, string>>(new Map());
   const urlCacheRef = useRef<Map<string, string>>(new Map());
 
   // Calculate pagination - memoize to prevent infinite loop
   const paginatedImages = useMemo(() => {
-    const totalPages = Math.ceil(images.length / ITEMS_PER_PAGE);
     const startIdx = (currentPage - 1) * ITEMS_PER_PAGE;
     const endIdx = startIdx + ITEMS_PER_PAGE;
     return images.slice(startIdx, endIdx);
@@ -86,6 +87,19 @@ export default function Gallery({ images }: GalleryProps) {
                 // Only render if URL is available
                 if (!url) return null;
 
+                if (img.file.type.startsWith("video/")) {
+                  return (
+                    <VideoCard
+                      key={key}
+                      src={url}
+                      name={img.name}
+                      size={img.size}
+                      lastModified={img.lastModified}
+                      onOpen={() => setPreview(img)}
+                    />
+                  );
+                }
+
                 return (
                   <ImageCard
                     key={key}
@@ -121,7 +135,7 @@ export default function Gallery({ images }: GalleryProps) {
               </button>
 
               <span className="text-sm text-gray-300 px-2">
-                Page {currentPage} of {totalPages} ({images.length} images)
+                Page {currentPage} of {totalPages} ({images.length} items)
               </span>
 
               <button
@@ -146,9 +160,7 @@ export default function Gallery({ images }: GalleryProps) {
           )}
         </>
       ) : (
-        <div className="text-center py-12 text-gray-400">
-          No images selected
-        </div>
+        <div className="text-center py-12 text-gray-400">No media selected</div>
       )}
 
       {preview &&
@@ -156,13 +168,25 @@ export default function Gallery({ images }: GalleryProps) {
           const url = urlMap.get(
             `${preview.file.name}-${preview.file.lastModified}`,
           );
-          return url ? (
+          if (!url) return null;
+
+          if (preview.file.type.startsWith("video/")) {
+            return (
+              <VideoPreview
+                src={url}
+                name={preview.name}
+                onClose={() => setPreview(null)}
+              />
+            );
+          }
+
+          return (
             <ImagePreview
               src={url}
               name={preview.name}
               onClose={() => setPreview(null)}
             />
-          ) : null;
+          );
         })()}
     </>
   );

@@ -13,6 +13,10 @@ import {
 } from "@/lib/indexeddb";
 import { toast } from "react-toastify";
 
+type DirectoryInputAttributes = React.InputHTMLAttributes<HTMLInputElement> & {
+  webkitdirectory?: "true";
+};
+
 type ImageItem = {
   file: File;
   name: string;
@@ -44,7 +48,11 @@ export default function Page() {
 
         if (savedFiles.length > 0) {
           const newImages: ImageItem[] = savedFiles
-            .filter((file) => file.type.startsWith("image/"))
+            .filter(
+              (file) =>
+                file.type.startsWith("image/") ||
+                file.type.startsWith("video/"),
+            )
             .map((file) => ({
               file,
               name: file.name,
@@ -80,12 +88,12 @@ export default function Page() {
       e.stopPropagation();
     };
 
-    window.addEventListener("dragover", preventDefault);
-    window.addEventListener("drop", preventDefault);
+    globalThis.addEventListener("dragover", preventDefault);
+    globalThis.addEventListener("drop", preventDefault);
 
     return () => {
-      window.removeEventListener("dragover", preventDefault);
-      window.removeEventListener("drop", preventDefault);
+      globalThis.removeEventListener("dragover", preventDefault);
+      globalThis.removeEventListener("drop", preventDefault);
     };
   }, []);
 
@@ -204,7 +212,10 @@ export default function Page() {
     const files = Array.from(fileList);
 
     const newImages: ImageItem[] = files
-      .filter((file) => file.type.startsWith("image/"))
+      .filter(
+        (file) =>
+          file.type.startsWith("image/") || file.type.startsWith("video/"),
+      )
       .map((file) => ({
         file,
         name: file.name,
@@ -331,7 +342,7 @@ export default function Page() {
 
         <input
           type="text"
-          placeholder="Search images..."
+          placeholder="Search media..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="px-3 py-2 border rounded-lg text-sm flex-1 min-w-[200px]"
@@ -374,7 +385,7 @@ export default function Page() {
       </div>
       {/* COUNT */}
       <div className="px-2 py-2 text-sm text-white border-b">
-        <span className="font-semibold">{sortedImages.length}</span> images
+        <span className="font-semibold">{sortedImages.length}</span> items
         loaded
       </div>
       {/* GALLERY + DROP AREA */}
@@ -385,7 +396,7 @@ export default function Page() {
       >
         {isLoading ? (
           <div className="flex flex-col items-center justify-center h-[60vh] text-gray-400">
-            <p className="text-sm">Loading saved images...</p>
+            <p className="text-sm">Loading saved media...</p>
           </div>
         ) : images.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-[60vh] border-2 border-dashed border-gray-600 rounded-lg text-gray-300">
@@ -394,13 +405,14 @@ export default function Page() {
             <label className="px-4 py-2 bg-gray-600 text-white rounded cursor-pointer hover:bg-gray-700">
               Select Folder
               <input
-                type="file"
-                webkitdirectory="true"
-                multiple
-                hidden
-                onChange={(e) =>
-                  e.target.files && handleFiles(e.target.files, "replace")
-                }
+                {...({
+                  type: "file",
+                  webkitdirectory: "true",
+                  multiple: true,
+                  hidden: true,
+                  onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+                    e.target.files && handleFiles(e.target.files, "replace"),
+                } satisfies DirectoryInputAttributes)}
               />
             </label>
           </div>
@@ -408,13 +420,13 @@ export default function Page() {
           <>
             <div className="flex items-center justify-between mb-3">
               <div className="text-xs text-gray-400">
-                Drag & drop images or folders here
+                Drag & drop images/videos or folders here
               </div>
               <button
                 onClick={async () => {
                   await clearFilesFromDB();
                   setImages([]);
-                  toast.info("Saved images cleared");
+                  toast.info("Saved media cleared");
                 }}
                 className="text-xs px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700"
               >

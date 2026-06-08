@@ -6,7 +6,7 @@ type Props = {
   onFolderSelect: (files: FileList | File[]) => void;
 };
 
-export default function Header({ onFolderSelect }: Props) {
+export default function Header({ onFolderSelect }: Readonly<Props>) {
   const [loading, setLoading] = useState(false);
   const [count, setCount] = useState(0);
 
@@ -18,7 +18,7 @@ export default function Header({ onFolderSelect }: Props) {
 
     const files = Array.from(e.target.files);
 
-    const images: File[] = [];
+    const mediaFiles: File[] = [];
 
     // Process in chunks so UI doesn't freeze
     const CHUNK_SIZE = 500;
@@ -28,18 +28,18 @@ export default function Header({ onFolderSelect }: Props) {
       const chunk = files.slice(index, index + CHUNK_SIZE);
 
       for (const file of chunk) {
-        if (file.type.startsWith("image/")) {
-          images.push(file);
+        if (file.type.startsWith("image/") || file.type.startsWith("video/")) {
+          mediaFiles.push(file);
         }
       }
 
       index += CHUNK_SIZE;
-      setCount(images.length);
+      setCount(mediaFiles.length);
 
       if (index < files.length) {
         setTimeout(processChunk, 0); // yield to browser
       } else {
-        onFolderSelect(images);
+        onFolderSelect(mediaFiles);
         setLoading(false);
       }
     };
@@ -49,12 +49,12 @@ export default function Header({ onFolderSelect }: Props) {
 
   return (
     <header className="flex justify-between p-4 border-b items-center">
-      <label className="text-white font-bold text-3xl">Gallery</label>
+      <h1 className="text-white font-bold text-3xl">Gallery</h1>
 
       {/* loading indicator */}
       {loading && (
         <div className="text-sm text-gray-300">
-          Loading... {count} images found
+          Loading... {count} files found
         </div>
       )}
 
