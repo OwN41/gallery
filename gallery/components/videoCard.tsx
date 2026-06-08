@@ -57,7 +57,7 @@ export default function VideoCard({
     >
       <button
         type="button"
-        className="aspect-square cursor-pointer overflow-hidden rounded-lg relative w-full"
+        className="block aspect-square cursor-pointer overflow-hidden rounded-lg relative w-full border-0 bg-transparent p-0 text-left"
         onClick={onOpen}
         aria-label={`Open preview for ${name}`}
       >
@@ -65,7 +65,7 @@ export default function VideoCard({
           src={src}
           muted
           preload="metadata"
-          className="w-full h-full object-cover"
+          className="block w-full h-full object-cover transition-transform duration-300 hover:scale-105"
         />
 
         <div className="absolute inset-0 flex items-center justify-center bg-black/25">
