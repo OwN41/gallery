@@ -1,20 +1,26 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import Header from "@/components/header";
 import Gallery from "@/components/gallery";
 import {
-  saveFilesToDB,
-  loadFilesFromDB,
-  clearFilesFromDB,
+  saveMediaToDB,
+  loadMediaFromDB,
+  clearMediaFromDB,
   saveFilterStateToDB,
   loadFilterStateFromDB,
+  type FileSystemFileHandleLike,
+  type PersistedMediaEntry,
   type FilterState,
 } from "@/lib/indexeddb";
 import { toast } from "react-toastify";
 
 type MediaItem = {
-  file: File;
+  id: string;
+  storage: "file" | "handle";
+  file?: File;
+  handle?: FileSystemFileHandleLike;
+  type: string;
   name: string;
   size: number;
   lastModified: number;
@@ -31,16 +37,170 @@ type FileSystemEntry = {
   };
 };
 
-const isSupportedMedia = (file: File) =>
-  file.type.startsWith("image/") || file.type.startsWith("video/");
+type DataTransferItemWithHandle = DataTransferItem & {
+  getAsFileSystemHandle?: () => Promise<FileSystemHandle | null>;
+};
+
+const isSupportedMedia = (mimeType: string) =>
+  mimeType.startsWith("image/") || mimeType.startsWith("video/");
+
+const supportsDirectoryPicker = () => {
+  const windowLike = globalThis as unknown as {
+    showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
+  };
+
+  return typeof windowLike.showDirectoryPicker === "function";
+};
+
+const collectFileHandlesFromFSHandle = async (
+  handle: FileSystemHandle,
+): Promise<FileSystemFileHandle[]> => {
+  if (handle.kind === "file") {
+    return [handle as FileSystemFileHandle];
+  }
+
+  const directoryHandle = handle as FileSystemDirectoryHandle;
+  const fileHandles: FileSystemFileHandle[] = [];
+
+  for await (const [, entry] of directoryHandle.entries()) {
+    fileHandles.push(...(await collectFileHandlesFromFSHandle(entry)));
+  }
+
+  return fileHandles;
+};
+
+const isNotNull = <T,>(value: T | null): value is T => value !== null;
+
+const buildMediaId = (
+  storage: "file" | "handle",
+  name: string,
+  lastModified: number,
+  size: number,
+  index: number,
+) => `${storage}-${name}-${lastModified}-${size}-${index}`;
 
 const mapFilesToMediaItems = (files: File[]) =>
-  files.filter(isSupportedMedia).map((file) => ({
-    file,
-    name: file.name,
-    size: file.size,
-    lastModified: file.lastModified,
-  }));
+  files
+    .filter((file) => isSupportedMedia(file.type))
+    .map((file, index) => ({
+      id: buildMediaId("file", file.name, file.lastModified, file.size, index),
+      storage: "file" as const,
+      file,
+      type: file.type,
+      name: file.name,
+      size: file.size,
+      lastModified: file.lastModified,
+    }));
+
+const mapHandlesToMediaItems = async (
+  handles: FileSystemFileHandle[],
+): Promise<MediaItem[]> => {
+  const items = await Promise.all(
+    handles.map(async (handle, index) => {
+      try {
+        const file = await handle.getFile();
+        if (!isSupportedMedia(file.type)) {
+          return null;
+        }
+
+        const item: MediaItem = {
+          id: buildMediaId(
+            "handle",
+            file.name,
+            file.lastModified,
+            file.size,
+            index,
+          ),
+          storage: "handle" as const,
+          handle,
+          type: file.type,
+          name: file.name,
+          size: file.size,
+          lastModified: file.lastModified,
+        };
+
+        return item;
+      } catch (error) {
+        console.error("Failed to read file handle:", error);
+        return null;
+      }
+    }),
+  );
+
+  return items.filter(isNotNull);
+};
+
+const mapPersistedMediaToItems = async (
+  entries: PersistedMediaEntry[],
+): Promise<MediaItem[]> => {
+  const items = await Promise.all(
+    entries.map(async (entry, index) => {
+      if (entry.storage === "file") {
+        const { file } = entry;
+        if (!isSupportedMedia(file.type)) return null;
+
+        const item: MediaItem = {
+          id: buildMediaId(
+            "file",
+            file.name,
+            file.lastModified,
+            file.size,
+            index,
+          ),
+          storage: "file" as const,
+          file,
+          type: file.type,
+          name: file.name,
+          size: file.size,
+          lastModified: file.lastModified,
+        };
+
+        return item;
+      }
+
+      try {
+        const file = await entry.handle.getFile();
+        if (!isSupportedMedia(file.type)) return null;
+
+        const item: MediaItem = {
+          id: buildMediaId(
+            "handle",
+            file.name,
+            file.lastModified,
+            file.size,
+            index,
+          ),
+          storage: "handle" as const,
+          handle: entry.handle,
+          type: file.type,
+          name: file.name,
+          size: file.size,
+          lastModified: file.lastModified,
+        };
+
+        return item;
+      } catch (error) {
+        console.error("Failed to restore media handle:", error);
+        return null;
+      }
+    }),
+  );
+
+  return items.filter(isNotNull);
+};
+
+const toPersistedEntries = (items: MediaItem[]): PersistedMediaEntry[] =>
+  items.flatMap((item): PersistedMediaEntry[] => {
+    if (item.storage === "handle" && item.handle) {
+      return [{ storage: "handle", handle: item.handle }];
+    }
+
+    if (item.storage === "file" && item.file) {
+      return [{ storage: "file", file: item.file }];
+    }
+
+    return [];
+  });
 
 const getSortIndicator = (
   sortBy: SortField,
@@ -82,6 +242,7 @@ const traverseFileTree = async (entry: FileSystemEntry): Promise<File[]> => {
 export default function Page() {
   const [isLoading, setIsLoading] = useState(true);
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
+  const emptyStateInputRef = useRef<HTMLInputElement | null>(null);
 
   const [sortBy, setSortBy] = useState<SortField>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -96,13 +257,20 @@ export default function Page() {
   useEffect(() => {
     const loadSaved = async () => {
       try {
-        const [savedFiles, savedFilters] = await Promise.all([
-          loadFilesFromDB(),
+        const [savedMedia, savedFilters] = await Promise.all([
+          loadMediaFromDB(),
           loadFilterStateFromDB(),
         ]);
 
-        if (savedFiles.length > 0) {
-          setMediaItems(mapFilesToMediaItems(savedFiles));
+        if (savedMedia.length > 0) {
+          const restored = await mapPersistedMediaToItems(savedMedia);
+          setMediaItems(restored);
+
+          if (restored.length < savedMedia.length) {
+            toast.info(
+              "Some saved files are no longer accessible. Re-select the folder to restore all items.",
+            );
+          }
         }
 
         if (savedFilters) {
@@ -259,12 +427,59 @@ export default function Page() {
     setMediaItems((prev) => {
       const updated =
         mode === "append" ? [...prev, ...newMediaItems] : newMediaItems;
-      // Save to IndexedDB
-      saveFilesToDB(updated.map((img) => img.file)).catch((error) =>
+      // Save only metadata handles or legacy files.
+      saveMediaToDB(toPersistedEntries(updated)).catch((error) =>
         console.error("Failed to save files:", error),
       );
       return updated;
     });
+  };
+
+  const handleFolderHandles = async (
+    handles: FileSystemFileHandle[],
+    mode: "replace" | "append" = "replace",
+  ) => {
+    const newMediaItems = await mapHandlesToMediaItems(handles);
+
+    setMediaItems((prev) => {
+      const updated =
+        mode === "append" ? [...prev, ...newMediaItems] : newMediaItems;
+
+      saveMediaToDB(toPersistedEntries(updated)).catch((error) =>
+        console.error("Failed to save handles:", error),
+      );
+
+      return updated;
+    });
+  };
+
+  const handleEmptyStateFolderSelect = async () => {
+    if (!supportsDirectoryPicker()) {
+      emptyStateInputRef.current?.click();
+      return;
+    }
+
+    try {
+      const windowLike = globalThis as unknown as {
+        showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
+      };
+
+      const picker = windowLike.showDirectoryPicker;
+      if (!picker) {
+        emptyStateInputRef.current?.click();
+        return;
+      }
+
+      const directoryHandle = await picker();
+      const handles = await collectFileHandlesFromFSHandle(directoryHandle);
+      await handleFolderHandles(handles, "replace");
+    } catch (error) {
+      const isAbortError =
+        error instanceof DOMException && error.name === "AbortError";
+      if (!isAbortError) {
+        console.error("Failed to pick directory from empty state:", error);
+      }
+    }
   };
 
   // -----------------------------
@@ -275,6 +490,30 @@ export default function Page() {
 
     const items = e.dataTransfer.items;
     if (!items) return;
+
+    const droppedItems = Array.from(items) as DataTransferItemWithHandle[];
+    const supportsFSHandleDrop = droppedItems.some(
+      (item) => typeof item.getAsFileSystemHandle === "function",
+    );
+
+    if (supportsFSHandleDrop) {
+      const droppedHandles = await Promise.all(
+        droppedItems.map(async (item) => {
+          if (item.kind !== "file") return [] as FileSystemFileHandle[];
+
+          const fsHandle = await item.getAsFileSystemHandle?.();
+          if (!fsHandle) return [] as FileSystemFileHandle[];
+
+          return collectFileHandlesFromFSHandle(fsHandle);
+        }),
+      );
+
+      const flattenedHandles = droppedHandles.flat();
+      if (flattenedHandles.length > 0) {
+        await handleFolderHandles(flattenedHandles, "replace");
+        return;
+      }
+    }
 
     const allFiles: File[] = [];
 
@@ -303,18 +542,24 @@ export default function Page() {
         <div className="flex flex-col items-center justify-center h-[60vh] border-2 border-dashed border-gray-600 rounded-lg text-gray-300">
           <p className="mb-4 text-sm">Drop a folder here or select one</p>
 
-          <label className="px-4 py-2 bg-gray-600 text-white rounded cursor-pointer hover:bg-gray-700">
-            <span>Select Folder</span>
-            <input
-              type="file"
-              webkitdirectory="true"
-              multiple
-              hidden
-              onChange={(e) =>
-                e.target.files && handleFiles(e.target.files, "replace")
-              }
-            />
-          </label>
+          <button
+            type="button"
+            onClick={handleEmptyStateFolderSelect}
+            className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+          >
+            Select Folder
+          </button>
+
+          <input
+            ref={emptyStateInputRef}
+            type="file"
+            webkitdirectory="true"
+            multiple
+            hidden
+            onChange={(e) =>
+              e.target.files && handleFiles(e.target.files, "replace")
+            }
+          />
         </div>
       );
     }
@@ -327,7 +572,7 @@ export default function Page() {
           </div>
           <button
             onClick={async () => {
-              await clearFilesFromDB();
+              await clearMediaFromDB();
               setMediaItems([]);
               toast.info("Saved media cleared");
             }}
@@ -345,7 +590,10 @@ export default function Page() {
   return (
     <div className="min-h-screen flex flex-col px-4">
       {/* HEADER */}
-      <Header onFolderSelect={handleFiles} />
+      <Header
+        onFolderSelectFiles={handleFiles}
+        onFolderSelectHandles={handleFolderHandles}
+      />
       {/* SEARCH + FILTERS */}
       <div className="flex gap-2 p-2 border-b text-sm flex-wrap items-center">
         <select

@@ -5,9 +5,14 @@ import ImageCard from "./imageCard";
 import ImagePreview from "./imagePreview";
 import VideoCard from "./videoCard";
 import VideoPreview from "./videoPreview";
+import { type FileSystemFileHandleLike } from "@/lib/indexeddb";
 
 type MediaItem = {
-  file: File;
+  id: string;
+  storage: "file" | "handle";
+  file?: File;
+  handle?: FileSystemFileHandleLike;
+  type: string;
   name: string;
   size: number;
   lastModified: number;
@@ -25,6 +30,18 @@ export default function Gallery({ images }: Readonly<GalleryProps>) {
   const [urlMap, setUrlMap] = useState<Map<string, string>>(new Map());
   const urlCacheRef = useRef<Map<string, string>>(new Map());
 
+  const getFileForItem = async (item: MediaItem): Promise<File | null> => {
+    if (item.file) return item.file;
+    if (item.handle) {
+      try {
+        return await item.handle.getFile();
+      } catch (error) {
+        console.error("Failed to load media handle:", error);
+      }
+    }
+    return null;
+  };
+
   // Calculate pagination - memoize to prevent infinite loop
   const paginatedImages = useMemo(() => {
     const startIdx = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -34,29 +51,60 @@ export default function Gallery({ images }: Readonly<GalleryProps>) {
 
   const totalPages = Math.ceil(images.length / ITEMS_PER_PAGE);
 
-  // Generate URLs for current page images
+  // Generate URLs for only visible and preview items, revoke everything else.
   useEffect(() => {
-    const newUrls = new Map(urlCacheRef.current);
+    let isCancelled = false;
 
-    paginatedImages.forEach((img) => {
-      const key = `${img.file.name}-${img.file.lastModified}`;
-      if (!newUrls.has(key)) {
-        const url = URL.createObjectURL(img.file);
-        newUrls.set(key, url);
+    const run = async () => {
+      const activeIds = new Set<string>(paginatedImages.map((img) => img.id));
+      if (preview) {
+        activeIds.add(preview.id);
       }
-    });
 
-    // Also generate URL for preview if it exists
-    if (preview) {
-      const key = `${preview.file.name}-${preview.file.lastModified}`;
-      if (!newUrls.has(key)) {
-        const url = URL.createObjectURL(preview.file);
-        newUrls.set(key, url);
+      const updated = new Map(urlCacheRef.current);
+
+      const staleIds: string[] = [];
+      updated.forEach((_, key) => {
+        if (!activeIds.has(key)) {
+          staleIds.push(key);
+        }
+      });
+
+      staleIds.forEach((key) => {
+        const staleUrl = updated.get(key);
+        if (staleUrl) {
+          URL.revokeObjectURL(staleUrl);
+          updated.delete(key);
+        }
+      });
+
+      const itemsToResolve = preview
+        ? [...paginatedImages, preview]
+        : paginatedImages;
+
+      for (const item of itemsToResolve) {
+        if (updated.has(item.id)) continue;
+
+        const file = await getFileForItem(item);
+        if (!file) continue;
+
+        updated.set(item.id, URL.createObjectURL(file));
       }
-    }
 
-    urlCacheRef.current = newUrls;
-    setUrlMap(new Map(newUrls));
+      if (isCancelled) {
+        updated.forEach((url) => URL.revokeObjectURL(url));
+        return;
+      }
+
+      urlCacheRef.current = updated;
+      setUrlMap(new Map(updated));
+    };
+
+    run();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [paginatedImages, preview]);
 
   // Cleanup URLs only on unmount
@@ -81,13 +129,13 @@ export default function Gallery({ images }: Readonly<GalleryProps>) {
           <div className="w-full">
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 p-4">
               {paginatedImages.map((img) => {
-                const key = `${img.file.name}-${img.file.lastModified}`;
+                const key = img.id;
                 const url = urlMap.get(key);
 
                 // Only render if URL is available
                 if (!url) return null;
 
-                if (img.file.type.startsWith("video/")) {
+                if (img.type.startsWith("video/")) {
                   return (
                     <VideoCard
                       key={key}
@@ -165,12 +213,10 @@ export default function Gallery({ images }: Readonly<GalleryProps>) {
 
       {preview &&
         (() => {
-          const url = urlMap.get(
-            `${preview.file.name}-${preview.file.lastModified}`,
-          );
+          const url = urlMap.get(preview.id);
           if (!url) return null;
 
-          if (preview.file.type.startsWith("video/")) {
+          if (preview.type.startsWith("video/")) {
             return (
               <VideoPreview
                 src={url}

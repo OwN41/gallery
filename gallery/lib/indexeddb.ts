@@ -2,6 +2,20 @@ const DB_NAME = "gallery-app";
 const STORE_NAME = "saved-files";
 const FILTER_STORE_NAME = "filter-state";
 
+export type FileSystemFileHandleLike = {
+  getFile: () => Promise<File>;
+};
+
+export type PersistedMediaEntry =
+  | {
+      storage: "file";
+      file: File;
+    }
+  | {
+      storage: "handle";
+      handle: FileSystemFileHandleLike;
+    };
+
 export type FilterState = {
   search: string;
   selectedYear: string;
@@ -11,11 +25,57 @@ export type FilterState = {
   sortDir: "asc" | "desc";
 };
 
-export async function saveFilesToDB(files: File[]): Promise<void> {
+const toError = (value: unknown, fallbackMessage: string): Error => {
+  if (value instanceof Error) return value;
+  if (typeof value === "string") return new Error(value);
+  return new Error(fallbackMessage);
+};
+
+const normalizePersistedEntry = (
+  entry: unknown,
+): PersistedMediaEntry | null => {
+  if (
+    typeof entry === "object" &&
+    entry !== null &&
+    "storage" in entry &&
+    (entry as { storage?: unknown }).storage === "file" &&
+    "file" in entry &&
+    (entry as { file?: unknown }).file instanceof File
+  ) {
+    return entry as PersistedMediaEntry;
+  }
+
+  if (
+    typeof entry === "object" &&
+    entry !== null &&
+    "storage" in entry &&
+    (entry as { storage?: unknown }).storage === "handle" &&
+    "handle" in entry &&
+    isHandleLike((entry as { handle?: unknown }).handle)
+  ) {
+    return entry as PersistedMediaEntry;
+  }
+
+  // Backward compatibility: older versions stored raw File objects.
+  if (entry instanceof File) {
+    return { storage: "file", file: entry };
+  }
+
+  return null;
+};
+
+const isPersistedMediaEntry = (
+  entry: PersistedMediaEntry | null,
+): entry is PersistedMediaEntry => entry !== null;
+
+export async function saveMediaToDB(
+  entries: PersistedMediaEntry[],
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 2);
 
-    request.onerror = () => reject(request.error);
+    request.onerror = () =>
+      reject(toError(request.error, "Failed to open IndexedDB for media save"));
 
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -35,22 +95,31 @@ export async function saveFilesToDB(files: File[]): Promise<void> {
       // Clear previous files
       store.clear();
 
-      // Save new files with index
-      files.forEach((file, index) => {
-        store.put(file, index);
+      // Save entries with index
+      entries.forEach((entry, index) => {
+        store.put(entry, index);
       });
 
       transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
+      transaction.onerror = () =>
+        reject(
+          toError(transaction.error, "Failed to write media into IndexedDB"),
+        );
     };
   });
 }
 
-export async function loadFilesFromDB(): Promise<File[]> {
+const isHandleLike = (value: unknown): value is FileSystemFileHandleLike =>
+  typeof value === "object" &&
+  value !== null &&
+  typeof (value as { getFile?: unknown }).getFile === "function";
+
+export async function loadMediaFromDB(): Promise<PersistedMediaEntry[]> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 2);
 
-    request.onerror = () => reject(request.error);
+    request.onerror = () =>
+      reject(toError(request.error, "Failed to open IndexedDB for media load"));
 
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -69,15 +138,22 @@ export async function loadFilesFromDB(): Promise<File[]> {
       const getAllRequest = store.getAll();
 
       getAllRequest.onsuccess = () => {
-        resolve(getAllRequest.result);
+        const normalized = (getAllRequest.result as unknown[])
+          .map(normalizePersistedEntry)
+          .filter(isPersistedMediaEntry);
+
+        resolve(normalized);
       };
 
-      getAllRequest.onerror = () => reject(getAllRequest.error);
+      getAllRequest.onerror = () =>
+        reject(
+          toError(getAllRequest.error, "Failed to read media from IndexedDB"),
+        );
     };
   });
 }
 
-export async function clearFilesFromDB(): Promise<void> {
+export async function clearMediaFromDB(): Promise<void> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 2);
 
@@ -88,18 +164,29 @@ export async function clearFilesFromDB(): Promise<void> {
       store.clear();
 
       transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
+      transaction.onerror = () =>
+        reject(
+          toError(transaction.error, "Failed to clear media from IndexedDB"),
+        );
     };
 
-    request.onerror = () => reject(request.error);
+    request.onerror = () =>
+      reject(
+        toError(request.error, "Failed to open IndexedDB for media clear"),
+      );
   });
 }
 
-export async function saveFilterStateToDB(filterState: FilterState): Promise<void> {
+export async function saveFilterStateToDB(
+  filterState: FilterState,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 2);
 
-    request.onerror = () => reject(request.error);
+    request.onerror = () =>
+      reject(
+        toError(request.error, "Failed to open IndexedDB for filter save"),
+      );
 
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -116,7 +203,8 @@ export async function saveFilterStateToDB(filterState: FilterState): Promise<voi
       store.put(filterState, "filters");
 
       transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
+      transaction.onerror = () =>
+        reject(toError(transaction.error, "Failed to write filter state"));
     };
   });
 }
@@ -125,7 +213,10 @@ export async function loadFilterStateFromDB(): Promise<FilterState | null> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 2);
 
-    request.onerror = () => reject(request.error);
+    request.onerror = () =>
+      reject(
+        toError(request.error, "Failed to open IndexedDB for filter load"),
+      );
 
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -144,7 +235,8 @@ export async function loadFilterStateFromDB(): Promise<FilterState | null> {
         resolve(getRequest.result || null);
       };
 
-      getRequest.onerror = () => reject(getRequest.error);
+      getRequest.onerror = () =>
+        reject(toError(getRequest.error, "Failed to read filter state"));
     };
   });
 }
