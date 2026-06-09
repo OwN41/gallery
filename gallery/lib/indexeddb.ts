@@ -71,11 +71,19 @@ const isPersistedMediaEntry = (
 export async function saveMediaToDB(
   entries: PersistedMediaEntry[],
 ): Promise<void> {
+  console.debug("[gallery:db] saveMediaToDB start", {
+    entryCount: entries.length,
+  });
+
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 2);
 
-    request.onerror = () =>
+    request.onerror = () => {
+      console.debug("[gallery:db] saveMediaToDB open failed", {
+        error: request.error,
+      });
       reject(toError(request.error, "Failed to open IndexedDB for media save"));
+    };
 
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -88,6 +96,7 @@ export async function saveMediaToDB(
     };
 
     request.onsuccess = () => {
+      console.debug("[gallery:db] saveMediaToDB open success");
       const db = request.result;
       const transaction = db.transaction(STORE_NAME, "readwrite");
       const store = transaction.objectStore(STORE_NAME);
@@ -100,11 +109,20 @@ export async function saveMediaToDB(
         store.put(entry, index);
       });
 
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () =>
+      transaction.oncomplete = () => {
+        console.debug("[gallery:db] saveMediaToDB complete", {
+          writtenCount: entries.length,
+        });
+        resolve();
+      };
+      transaction.onerror = () => {
+        console.debug("[gallery:db] saveMediaToDB transaction failed", {
+          error: transaction.error,
+        });
         reject(
           toError(transaction.error, "Failed to write media into IndexedDB"),
         );
+      };
     };
   });
 }
@@ -115,11 +133,17 @@ const isHandleLike = (value: unknown): value is FileSystemFileHandleLike =>
   typeof (value as { getFile?: unknown }).getFile === "function";
 
 export async function loadMediaFromDB(): Promise<PersistedMediaEntry[]> {
+  console.debug("[gallery:db] loadMediaFromDB start");
+
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 2);
 
-    request.onerror = () =>
+    request.onerror = () => {
+      console.debug("[gallery:db] loadMediaFromDB open failed", {
+        error: request.error,
+      });
       reject(toError(request.error, "Failed to open IndexedDB for media load"));
+    };
 
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -132,6 +156,7 @@ export async function loadMediaFromDB(): Promise<PersistedMediaEntry[]> {
     };
 
     request.onsuccess = () => {
+      console.debug("[gallery:db] loadMediaFromDB open success");
       const db = request.result;
       const transaction = db.transaction(STORE_NAME, "readonly");
       const store = transaction.objectStore(STORE_NAME);
@@ -142,51 +167,80 @@ export async function loadMediaFromDB(): Promise<PersistedMediaEntry[]> {
           .map(normalizePersistedEntry)
           .filter(isPersistedMediaEntry);
 
+        console.debug("[gallery:db] loadMediaFromDB complete", {
+          rawCount: getAllRequest.result.length,
+          normalizedCount: normalized.length,
+        });
+
         resolve(normalized);
       };
 
-      getAllRequest.onerror = () =>
+      getAllRequest.onerror = () => {
+        console.debug("[gallery:db] loadMediaFromDB read failed", {
+          error: getAllRequest.error,
+        });
         reject(
           toError(getAllRequest.error, "Failed to read media from IndexedDB"),
         );
+      };
     };
   });
 }
 
 export async function clearMediaFromDB(): Promise<void> {
+  console.debug("[gallery:db] clearMediaFromDB start");
+
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 2);
 
     request.onsuccess = () => {
+      console.debug("[gallery:db] clearMediaFromDB open success");
       const db = request.result;
       const transaction = db.transaction(STORE_NAME, "readwrite");
       const store = transaction.objectStore(STORE_NAME);
       store.clear();
 
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () =>
+      transaction.oncomplete = () => {
+        console.debug("[gallery:db] clearMediaFromDB complete");
+        resolve();
+      };
+      transaction.onerror = () => {
+        console.debug("[gallery:db] clearMediaFromDB transaction failed", {
+          error: transaction.error,
+        });
         reject(
           toError(transaction.error, "Failed to clear media from IndexedDB"),
         );
+      };
     };
 
-    request.onerror = () =>
+    request.onerror = () => {
+      console.debug("[gallery:db] clearMediaFromDB open failed", {
+        error: request.error,
+      });
       reject(
         toError(request.error, "Failed to open IndexedDB for media clear"),
       );
+    };
   });
 }
 
 export async function saveFilterStateToDB(
   filterState: FilterState,
 ): Promise<void> {
+  console.debug("[gallery:db] saveFilterStateToDB start", filterState);
+
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 2);
 
-    request.onerror = () =>
+    request.onerror = () => {
+      console.debug("[gallery:db] saveFilterStateToDB open failed", {
+        error: request.error,
+      });
       reject(
         toError(request.error, "Failed to open IndexedDB for filter save"),
       );
+    };
 
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -196,27 +250,41 @@ export async function saveFilterStateToDB(
     };
 
     request.onsuccess = () => {
+      console.debug("[gallery:db] saveFilterStateToDB open success");
       const db = request.result;
       const transaction = db.transaction(FILTER_STORE_NAME, "readwrite");
       const store = transaction.objectStore(FILTER_STORE_NAME);
 
       store.put(filterState, "filters");
 
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () =>
+      transaction.oncomplete = () => {
+        console.debug("[gallery:db] saveFilterStateToDB complete");
+        resolve();
+      };
+      transaction.onerror = () => {
+        console.debug("[gallery:db] saveFilterStateToDB transaction failed", {
+          error: transaction.error,
+        });
         reject(toError(transaction.error, "Failed to write filter state"));
+      };
     };
   });
 }
 
 export async function loadFilterStateFromDB(): Promise<FilterState | null> {
+  console.debug("[gallery:db] loadFilterStateFromDB start");
+
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 2);
 
-    request.onerror = () =>
+    request.onerror = () => {
+      console.debug("[gallery:db] loadFilterStateFromDB open failed", {
+        error: request.error,
+      });
       reject(
         toError(request.error, "Failed to open IndexedDB for filter load"),
       );
+    };
 
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -226,17 +294,25 @@ export async function loadFilterStateFromDB(): Promise<FilterState | null> {
     };
 
     request.onsuccess = () => {
+      console.debug("[gallery:db] loadFilterStateFromDB open success");
       const db = request.result;
       const transaction = db.transaction(FILTER_STORE_NAME, "readonly");
       const store = transaction.objectStore(FILTER_STORE_NAME);
       const getRequest = store.get("filters");
 
       getRequest.onsuccess = () => {
+        console.debug("[gallery:db] loadFilterStateFromDB complete", {
+          hasFilters: Boolean(getRequest.result),
+        });
         resolve(getRequest.result || null);
       };
 
-      getRequest.onerror = () =>
+      getRequest.onerror = () => {
+        console.debug("[gallery:db] loadFilterStateFromDB read failed", {
+          error: getRequest.error,
+        });
         reject(toError(getRequest.error, "Failed to read filter state"));
+      };
     };
   });
 }

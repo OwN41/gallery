@@ -56,6 +56,12 @@ export default function Gallery({ images }: Readonly<GalleryProps>) {
     let isCancelled = false;
 
     const run = async () => {
+      console.debug("[gallery:view] Resolving URLs for visible media", {
+        page: currentPage,
+        visibleCount: paginatedImages.length,
+        hasPreview: Boolean(preview),
+      });
+
       const activeIds = new Set<string>(paginatedImages.map((img) => img.id));
       if (preview) {
         activeIds.add(preview.id);
@@ -78,6 +84,12 @@ export default function Gallery({ images }: Readonly<GalleryProps>) {
         }
       });
 
+      if (staleIds.length > 0) {
+        console.debug("[gallery:view] Revoked stale object URLs", {
+          revokedCount: staleIds.length,
+        });
+      }
+
       const itemsToResolve = preview
         ? [...paginatedImages, preview]
         : paginatedImages;
@@ -91,8 +103,15 @@ export default function Gallery({ images }: Readonly<GalleryProps>) {
         updated.set(item.id, URL.createObjectURL(file));
       }
 
+      console.debug("[gallery:view] URL cache updated", {
+        cacheSize: updated.size,
+      });
+
       if (isCancelled) {
         updated.forEach((url) => URL.revokeObjectURL(url));
+        console.debug("[gallery:view] Effect cancelled, revoked pending URLs", {
+          revokedCount: updated.size,
+        });
         return;
       }
 
@@ -105,11 +124,14 @@ export default function Gallery({ images }: Readonly<GalleryProps>) {
     return () => {
       isCancelled = true;
     };
-  }, [paginatedImages, preview]);
+  }, [currentPage, paginatedImages, preview]);
 
   // Cleanup URLs only on unmount
   useEffect(() => {
     return () => {
+      console.debug("[gallery:view] Component unmount, clearing URL cache", {
+        cacheSize: urlCacheRef.current.size,
+      });
       urlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
       urlCacheRef.current.clear();
     };

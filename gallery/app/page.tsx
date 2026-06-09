@@ -48,14 +48,21 @@ const supportsDirectoryPicker = () => {
   const windowLike = globalThis as unknown as {
     showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
   };
+  const supported = typeof windowLike.showDirectoryPicker === "function";
+  console.debug("[gallery:picker] Directory picker support check", {
+    supported,
+  });
 
-  return typeof windowLike.showDirectoryPicker === "function";
+  return supported;
 };
 
 const collectFileHandlesFromFSHandle = async (
   handle: FileSystemHandle,
 ): Promise<FileSystemFileHandle[]> => {
   if (handle.kind === "file") {
+    console.debug("[gallery:handles] Collected file handle", {
+      kind: handle.kind,
+    });
     return [handle as FileSystemFileHandle];
   }
 
@@ -65,6 +72,10 @@ const collectFileHandlesFromFSHandle = async (
   for await (const [, entry] of directoryHandle.entries()) {
     fileHandles.push(...(await collectFileHandlesFromFSHandle(entry)));
   }
+
+  console.debug("[gallery:handles] Collected directory handles", {
+    count: fileHandles.length,
+  });
 
   return fileHandles;
 };
@@ -95,6 +106,10 @@ const mapFilesToMediaItems = (files: File[]) =>
 const mapHandlesToMediaItems = async (
   handles: FileSystemFileHandle[],
 ): Promise<MediaItem[]> => {
+  console.debug("[gallery:map] Mapping handles to media items", {
+    handleCount: handles.length,
+  });
+
   const items = await Promise.all(
     handles.map(async (handle, index) => {
       try {
@@ -127,12 +142,20 @@ const mapHandlesToMediaItems = async (
     }),
   );
 
-  return items.filter(isNotNull);
+  const mapped = items.filter(isNotNull);
+  console.debug("[gallery:map] Handle mapping complete", {
+    mappedCount: mapped.length,
+  });
+  return mapped;
 };
 
 const mapPersistedMediaToItems = async (
   entries: PersistedMediaEntry[],
 ): Promise<MediaItem[]> => {
+  console.debug("[gallery:restore] Restoring persisted media entries", {
+    entryCount: entries.length,
+  });
+
   const items = await Promise.all(
     entries.map(async (entry, index) => {
       if (entry.storage === "file") {
@@ -186,7 +209,11 @@ const mapPersistedMediaToItems = async (
     }),
   );
 
-  return items.filter(isNotNull);
+  const restored = items.filter(isNotNull);
+  console.debug("[gallery:restore] Persisted media restore complete", {
+    restoredCount: restored.length,
+  });
+  return restored;
 };
 
 const toPersistedEntries = (items: MediaItem[]): PersistedMediaEntry[] =>
@@ -213,7 +240,13 @@ const getSortIndicator = (
 
 const readFileFromEntry = (entry: FileSystemEntry): Promise<File[]> =>
   new Promise((resolve) => {
-    entry.file?.((file: File) => resolve([file]));
+    entry.file?.((file: File) => {
+      console.debug("[gallery:drop] Read file from legacy entry", {
+        name: file.name,
+        type: file.type,
+      });
+      resolve([file]);
+    });
   });
 
 const readEntriesBatch = (reader: {
@@ -236,7 +269,11 @@ const traverseFileTree = async (entry: FileSystemEntry): Promise<File[]> => {
   }
 
   const nested = await Promise.all(allEntries.map(traverseFileTree));
-  return nested.flat();
+  const flattened = nested.flat();
+  console.debug("[gallery:drop] Traversed legacy directory", {
+    fileCount: flattened.length,
+  });
+  return flattened;
 };
 
 export default function Page() {
@@ -256,11 +293,17 @@ export default function Page() {
   // Load saved files and filter state on mount
   useEffect(() => {
     const loadSaved = async () => {
+      console.debug("[gallery:init] Loading saved media and filters");
       try {
         const [savedMedia, savedFilters] = await Promise.all([
           loadMediaFromDB(),
           loadFilterStateFromDB(),
         ]);
+
+        console.debug("[gallery:init] Loaded persisted data", {
+          savedMediaCount: savedMedia.length,
+          hasFilters: Boolean(savedFilters),
+        });
 
         if (savedMedia.length > 0) {
           const restored = await mapPersistedMediaToItems(savedMedia);
@@ -280,10 +323,12 @@ export default function Page() {
           setSelectedDay(savedFilters.selectedDay);
           setSortBy(savedFilters.sortBy);
           setSortDir(savedFilters.sortDir);
+          console.debug("[gallery:init] Restored saved filters", savedFilters);
         }
       } catch (error) {
         console.error("Failed to load saved data:", error);
       } finally {
+        console.debug("[gallery:init] Initial load complete");
         setIsLoading(false);
       }
     };
@@ -318,6 +363,7 @@ export default function Page() {
       sortBy,
       sortDir,
     };
+    console.debug("[gallery:filters] Persisting filter state", filterState);
     saveFilterStateToDB(filterState).catch((error) =>
       console.error("Failed to save filter state:", error),
     );
@@ -421,12 +467,23 @@ export default function Page() {
     mode: "replace" | "append" = "replace",
   ) => {
     const files = Array.from(fileList);
+    console.debug("[gallery:files] Handling file input", {
+      mode,
+      incomingCount: files.length,
+    });
 
     const newMediaItems = mapFilesToMediaItems(files);
+    console.debug("[gallery:files] Filtered media files", {
+      mediaCount: newMediaItems.length,
+    });
 
     setMediaItems((prev) => {
       const updated =
         mode === "append" ? [...prev, ...newMediaItems] : newMediaItems;
+      console.debug("[gallery:files] Updating media state from files", {
+        previousCount: prev.length,
+        updatedCount: updated.length,
+      });
       // Save only metadata handles or legacy files.
       saveMediaToDB(toPersistedEntries(updated)).catch((error) =>
         console.error("Failed to save files:", error),
@@ -439,11 +496,21 @@ export default function Page() {
     handles: FileSystemFileHandle[],
     mode: "replace" | "append" = "replace",
   ) => {
+    console.debug("[gallery:handles] Handling folder handles", {
+      mode,
+      incomingCount: handles.length,
+    });
+
     const newMediaItems = await mapHandlesToMediaItems(handles);
 
     setMediaItems((prev) => {
       const updated =
         mode === "append" ? [...prev, ...newMediaItems] : newMediaItems;
+
+      console.debug("[gallery:handles] Updating media state from handles", {
+        previousCount: prev.length,
+        updatedCount: updated.length,
+      });
 
       saveMediaToDB(toPersistedEntries(updated)).catch((error) =>
         console.error("Failed to save handles:", error),
@@ -454,7 +521,9 @@ export default function Page() {
   };
 
   const handleEmptyStateFolderSelect = async () => {
+    console.debug("[gallery:empty-select] Select folder clicked");
     if (!supportsDirectoryPicker()) {
+      console.debug("[gallery:empty-select] Falling back to file input");
       emptyStateInputRef.current?.click();
       return;
     }
@@ -466,17 +535,25 @@ export default function Page() {
 
       const picker = windowLike.showDirectoryPicker;
       if (!picker) {
+        console.debug(
+          "[gallery:empty-select] Picker unavailable at runtime, fallback to file input",
+        );
         emptyStateInputRef.current?.click();
         return;
       }
 
       const directoryHandle = await picker();
       const handles = await collectFileHandlesFromFSHandle(directoryHandle);
+      console.debug("[gallery:empty-select] Picker returned handles", {
+        handleCount: handles.length,
+      });
       await handleFolderHandles(handles, "replace");
     } catch (error) {
       const isAbortError =
         error instanceof DOMException && error.name === "AbortError";
-      if (!isAbortError) {
+      if (isAbortError) {
+        console.debug("[gallery:empty-select] Picker cancelled by user");
+      } else {
         console.error("Failed to pick directory from empty state:", error);
       }
     }
@@ -487,6 +564,7 @@ export default function Page() {
   // -----------------------------
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
+    console.debug("[gallery:drop] Drop event received");
 
     const items = e.dataTransfer.items;
     if (!items) return;
@@ -495,6 +573,10 @@ export default function Page() {
     const supportsFSHandleDrop = droppedItems.some(
       (item) => typeof item.getAsFileSystemHandle === "function",
     );
+    console.debug("[gallery:drop] Handle API support on drop items", {
+      supportsFSHandleDrop,
+      itemCount: droppedItems.length,
+    });
 
     if (supportsFSHandleDrop) {
       const droppedHandles = await Promise.all(
@@ -509,6 +591,9 @@ export default function Page() {
       );
 
       const flattenedHandles = droppedHandles.flat();
+      console.debug("[gallery:drop] Collected handles from drop", {
+        handleCount: flattenedHandles.length,
+      });
       if (flattenedHandles.length > 0) {
         await handleFolderHandles(flattenedHandles, "replace");
         return;
@@ -524,6 +609,10 @@ export default function Page() {
         allFiles.push(...files);
       }
     }
+
+    console.debug("[gallery:drop] Legacy drop collected files", {
+      fileCount: allFiles.length,
+    });
 
     handleFiles(allFiles, "replace");
   };
@@ -572,6 +661,9 @@ export default function Page() {
           </div>
           <button
             onClick={async () => {
+              console.debug(
+                "[gallery:clear] Clearing saved media and UI state",
+              );
               await clearMediaFromDB();
               setMediaItems([]);
               toast.info("Saved media cleared");

@@ -16,7 +16,11 @@ const isSupportedMediaType = (mimeType: string) =>
 
 const supportsDirectoryPicker = () => {
   const windowLike = globalThis as unknown as DirectoryPickerWindow;
-  return typeof windowLike.showDirectoryPicker === "function";
+  const supported = typeof windowLike.showDirectoryPicker === "function";
+  console.debug("[gallery:header] Directory picker support check", {
+    supported,
+  });
+  return supported;
 };
 
 const collectMediaHandles = async (
@@ -35,6 +39,10 @@ const collectMediaHandles = async (
       handles.push(entry);
     }
   }
+
+  console.debug("[gallery:header] Collected handles from directory", {
+    handleCount: handles.length,
+  });
 
   return handles;
 };
@@ -64,6 +72,9 @@ export default function Header({
     setCount(0);
 
     const files = Array.from(e.target.files);
+    console.debug("[gallery:header] File input selected", {
+      totalCount: files.length,
+    });
 
     const mediaFiles: File[] = [];
 
@@ -86,6 +97,9 @@ export default function Header({
       if (index < files.length) {
         setTimeout(processChunk, 0); // yield to browser
       } else {
+        console.debug("[gallery:header] File input processing complete", {
+          mediaCount: mediaFiles.length,
+        });
         onFolderSelectFiles(mediaFiles);
         setLoading(false);
       }
@@ -95,7 +109,11 @@ export default function Header({
   };
 
   const handleSelectFolder = async () => {
+    console.debug("[gallery:header] Select folder clicked", {
+      supportsDirectoryHandles,
+    });
     if (!supportsDirectoryHandles) {
+      console.debug("[gallery:header] Falling back to file input");
       fileInputRef.current?.click();
       return;
     }
@@ -106,19 +124,28 @@ export default function Header({
     try {
       const windowLike = globalThis as unknown as DirectoryPickerWindow;
       const picker = windowLike.showDirectoryPicker;
-      if (!picker) return;
+      if (!picker) {
+        console.debug("[gallery:header] Picker missing at runtime");
+        return;
+      }
 
       const directoryHandle = await picker();
       const handles = await collectMediaHandles(directoryHandle);
       setCount(handles.length);
+      console.debug("[gallery:header] Picker returned handles", {
+        handleCount: handles.length,
+      });
       await onFolderSelectHandles(handles);
     } catch (error) {
       const isAbortError =
         error instanceof DOMException && error.name === "AbortError";
-      if (!isAbortError) {
+      if (isAbortError) {
+        console.debug("[gallery:header] Picker cancelled by user");
+      } else {
         console.error("Failed to pick directory:", error);
       }
     } finally {
+      console.debug("[gallery:header] Folder select flow complete");
       setLoading(false);
     }
   };
