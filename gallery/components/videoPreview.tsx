@@ -105,21 +105,6 @@ export default function VideoPreview({ src, name, onClose }: Readonly<Props>) {
         >
           <track kind="captions" label="captions" />
         </video>
-
-        <div
-          style={{
-            position: "absolute",
-            bottom: 0,
-            width: "100%",
-            textAlign: "center",
-            padding: "6px",
-            fontSize: "12px",
-            color: "white",
-            background: "linear-gradient(transparent, rgba(0,0,0,0.6))",
-          }}
-        >
-          {name}
-        </div>
       </div>
     </div>
   );

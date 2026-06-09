@@ -23,20 +23,35 @@ const supportsDirectoryPicker = () => {
   return supported;
 };
 
+function isDirectoryHandle(
+  handle: FileSystemHandle,
+): handle is FileSystemDirectoryHandle {
+  return handle.kind === "directory";
+}
+
+function isFileHandle(
+  handle: FileSystemHandle,
+): handle is FileSystemFileHandle {
+  return handle.kind === "file";
+}
+
 const collectMediaHandles = async (
   directoryHandle: FileSystemDirectoryHandle,
 ): Promise<FileSystemFileHandle[]> => {
   const handles: FileSystemFileHandle[] = [];
 
-  for await (const [, entry] of directoryHandle.entries()) {
-    if (entry.kind === "directory") {
+  for await (const entry of directoryHandle.values()) {
+    if (isDirectoryHandle(entry)) {
       handles.push(...(await collectMediaHandles(entry)));
       continue;
     }
 
-    const file = await entry.getFile();
-    if (isSupportedMediaType(file.type)) {
-      handles.push(entry);
+    if (isFileHandle(entry)) {
+      const file = await entry.getFile();
+
+      if (isSupportedMediaType(file.type)) {
+        handles.push(entry);
+      }
     }
   }
 

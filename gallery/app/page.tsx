@@ -312,6 +312,7 @@ export default function Page() {
           if (restored.length < savedMedia.length) {
             toast.info(
               "Some saved files are no longer accessible. Re-select the folder to restore all items.",
+              { autoClose: 5000 },
             );
           }
         }
