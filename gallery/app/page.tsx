@@ -41,17 +41,22 @@ type DataTransferItemWithHandle = DataTransferItem & {
   getAsFileSystemHandle?: () => Promise<FileSystemHandle | null>;
 };
 
-const isSupportedMedia = (mimeType: string) =>
-  mimeType.startsWith("image/") || mimeType.startsWith("video/");
+const MEDIA_EXTENSION_REGEX =
+  /\.(avif|bmp|gif|heic|heif|jpe?g|png|svg|webp|mp4|m4v|mov|mkv|webm|avi|wmv|flv|3gp)$/i;
+
+const isSupportedMedia = (mimeType: string, fileName?: string) => {
+  if (mimeType.startsWith("image/") || mimeType.startsWith("video/")) {
+    return true;
+  }
+
+  return typeof fileName === "string" && MEDIA_EXTENSION_REGEX.test(fileName);
+};
 
 const supportsDirectoryPicker = () => {
   const windowLike = globalThis as unknown as {
     showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
   };
   const supported = typeof windowLike.showDirectoryPicker === "function";
-  console.debug("[gallery:picker] Directory picker support check", {
-    supported,
-  });
 
   return supported;
 };
@@ -60,9 +65,6 @@ const collectFileHandlesFromFSHandle = async (
   handle: FileSystemHandle,
 ): Promise<FileSystemFileHandle[]> => {
   if (handle.kind === "file") {
-    console.debug("[gallery:handles] Collected file handle", {
-      kind: handle.kind,
-    });
     return [handle as FileSystemFileHandle];
   }
 
@@ -72,10 +74,6 @@ const collectFileHandlesFromFSHandle = async (
   for await (const [, entry] of directoryHandle.entries()) {
     fileHandles.push(...(await collectFileHandlesFromFSHandle(entry)));
   }
-
-  console.debug("[gallery:handles] Collected directory handles", {
-    count: fileHandles.length,
-  });
 
   return fileHandles;
 };
@@ -92,7 +90,7 @@ const buildMediaId = (
 
 const mapFilesToMediaItems = (files: File[]) =>
   files
-    .filter((file) => isSupportedMedia(file.type))
+    .filter((file) => isSupportedMedia(file.type, file.name))
     .map((file, index) => ({
       id: buildMediaId("file", file.name, file.lastModified, file.size, index),
       storage: "file" as const,
@@ -106,15 +104,11 @@ const mapFilesToMediaItems = (files: File[]) =>
 const mapHandlesToMediaItems = async (
   handles: FileSystemFileHandle[],
 ): Promise<MediaItem[]> => {
-  console.debug("[gallery:map] Mapping handles to media items", {
-    handleCount: handles.length,
-  });
-
   const items = await Promise.all(
     handles.map(async (handle, index) => {
       try {
         const file = await handle.getFile();
-        if (!isSupportedMedia(file.type)) {
+        if (!isSupportedMedia(file.type, file.name)) {
           return null;
         }
 
@@ -143,77 +137,110 @@ const mapHandlesToMediaItems = async (
   );
 
   const mapped = items.filter(isNotNull);
-  console.debug("[gallery:map] Handle mapping complete", {
-    mappedCount: mapped.length,
-  });
   return mapped;
+};
+
+type RestoreResult = {
+  items: MediaItem[];
+  needsPermission: FileSystemFileHandleLike[];
+  notAccessible: number;
 };
 
 const mapPersistedMediaToItems = async (
   entries: PersistedMediaEntry[],
-): Promise<MediaItem[]> => {
-  console.debug("[gallery:restore] Restoring persisted media entries", {
-    entryCount: entries.length,
-  });
+): Promise<RestoreResult> => {
+  type EntryResult =
+    | { tag: "ok"; item: MediaItem }
+    | { tag: "needs-permission"; handle: FileSystemFileHandleLike }
+    | { tag: "inaccessible" }
+    | null;
 
-  const items = await Promise.all(
-    entries.map(async (entry, index) => {
+  const results = await Promise.all(
+    entries.map(async (entry, index): Promise<EntryResult> => {
       if (entry.storage === "file") {
         const { file } = entry;
-        if (!isSupportedMedia(file.type)) return null;
+        if (!isSupportedMedia(file.type, file.name)) return null;
 
-        const item: MediaItem = {
-          id: buildMediaId(
-            "file",
-            file.name,
-            file.lastModified,
-            file.size,
-            index,
-          ),
-          storage: "file" as const,
-          file,
-          type: file.type,
-          name: file.name,
-          size: file.size,
-          lastModified: file.lastModified,
+        return {
+          tag: "ok",
+          item: {
+            id: buildMediaId(
+              "file",
+              file.name,
+              file.lastModified,
+              file.size,
+              index,
+            ),
+            storage: "file" as const,
+            file,
+            type: file.type,
+            name: file.name,
+            size: file.size,
+            lastModified: file.lastModified,
+          },
         };
-
-        return item;
       }
 
       try {
-        const file = await entry.handle.getFile();
-        if (!isSupportedMedia(file.type)) return null;
-
-        const item: MediaItem = {
-          id: buildMediaId(
-            "handle",
-            file.name,
-            file.lastModified,
-            file.size,
-            index,
-          ),
-          storage: "handle" as const,
-          handle: entry.handle,
-          type: file.type,
-          name: file.name,
-          size: file.size,
-          lastModified: file.lastModified,
+        // Proactively check permission before calling getFile().
+        // On page reload Chrome resets permission state to "prompt", which
+        // means getFile() can throw various DOMExceptions. queryPermission
+        // is the reliable way to detect this before attempting the call.
+        const handleWithPerm = entry.handle as FileSystemFileHandleLike & {
+          queryPermission?: (d: { mode: string }) => Promise<PermissionState>;
         };
+        if (typeof handleWithPerm.queryPermission === "function") {
+          const state = await handleWithPerm.queryPermission({ mode: "read" });
+          if (state !== "granted") {
+            return { tag: "needs-permission", handle: entry.handle };
+          }
+        }
 
-        return item;
+        const file = await entry.handle.getFile();
+        if (!isSupportedMedia(file.type, file.name)) return null;
+
+        return {
+          tag: "ok",
+          item: {
+            id: buildMediaId(
+              "handle",
+              file.name,
+              file.lastModified,
+              file.size,
+              index,
+            ),
+            storage: "handle" as const,
+            handle: entry.handle,
+            type: file.type,
+            name: file.name,
+            size: file.size,
+            lastModified: file.lastModified,
+          },
+        };
       } catch (error) {
+        // Treat any error as needing permission re-grant. After a reload,
+        // getFile() can throw NotAllowedError, SecurityError, InvalidStateError,
+        // or others — all mean the handle needs the user to re-authorise it.
         console.error("Failed to restore media handle:", error);
-        return null;
+        return { tag: "needs-permission", handle: entry.handle };
       }
     }),
   );
 
-  const restored = items.filter(isNotNull);
-  console.debug("[gallery:restore] Persisted media restore complete", {
-    restoredCount: restored.length,
-  });
-  return restored;
+  const items = results
+    .filter((r): r is { tag: "ok"; item: MediaItem } => r?.tag === "ok")
+    .map((r) => r.item);
+
+  const needsPermission = results
+    .filter(
+      (r): r is { tag: "needs-permission"; handle: FileSystemFileHandleLike } =>
+        r?.tag === "needs-permission",
+    )
+    .map((r) => r.handle);
+
+  const notAccessible = results.filter((r) => r?.tag === "inaccessible").length;
+
+  return { items, needsPermission, notAccessible };
 };
 
 const toPersistedEntries = (items: MediaItem[]): PersistedMediaEntry[] =>
@@ -241,10 +268,6 @@ const getSortIndicator = (
 const readFileFromEntry = (entry: FileSystemEntry): Promise<File[]> =>
   new Promise((resolve) => {
     entry.file?.((file: File) => {
-      console.debug("[gallery:drop] Read file from legacy entry", {
-        name: file.name,
-        type: file.type,
-      });
       resolve([file]);
     });
   });
@@ -270,21 +293,24 @@ const traverseFileTree = async (entry: FileSystemEntry): Promise<File[]> => {
 
   const nested = await Promise.all(allEntries.map(traverseFileTree));
   const flattened = nested.flat();
-  console.debug("[gallery:drop] Traversed legacy directory", {
-    fileCount: flattened.length,
-  });
   return flattened;
 };
 
 export default function Page() {
   const [isLoading, setIsLoading] = useState(true);
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
+  const [pendingPermissionHandles, setPendingPermissionHandles] = useState<
+    FileSystemFileHandleLike[]
+  >([]);
   const emptyStateInputRef = useRef<HTMLInputElement | null>(null);
 
   const [sortBy, setSortBy] = useState<SortField>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   const [search, setSearch] = useState("");
+  const [mediaType, setMediaType] = useState<"all" | "images" | "videos">(
+    "all",
+  );
 
   const [selectedYear, setSelectedYear] = useState<string>("all");
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
@@ -293,25 +319,28 @@ export default function Page() {
   // Load saved files and filter state on mount
   useEffect(() => {
     const loadSaved = async () => {
-      console.debug("[gallery:init] Loading saved media and filters");
+      setPendingPermissionHandles([]);
       try {
         const [savedMedia, savedFilters] = await Promise.all([
           loadMediaFromDB(),
           loadFilterStateFromDB(),
         ]);
 
-        console.debug("[gallery:init] Loaded persisted data", {
-          savedMediaCount: savedMedia.length,
-          hasFilters: Boolean(savedFilters),
-        });
-
         if (savedMedia.length > 0) {
-          const restored = await mapPersistedMediaToItems(savedMedia);
-          setMediaItems(restored);
+          const { items, needsPermission, notAccessible } =
+            await mapPersistedMediaToItems(savedMedia);
+          console.debug("[gallery:init] Restore classification", {
+            savedMediaCount: savedMedia.length,
+            itemsCount: items.length,
+            needsPermissionCount: needsPermission.length,
+            notAccessibleCount: notAccessible,
+          });
+          setMediaItems(items);
+          setPendingPermissionHandles(needsPermission);
 
-          if (restored.length < savedMedia.length) {
+          if (notAccessible > 0) {
             toast.info(
-              "Some saved files are no longer accessible. Re-select the folder to restore all items.",
+              `${notAccessible} saved file(s) are no longer accessible and were removed.`,
               { autoClose: 5000 },
             );
           }
@@ -319,12 +348,12 @@ export default function Page() {
 
         if (savedFilters) {
           setSearch(savedFilters.search);
+          setMediaType(savedFilters.mediaType ?? "all");
           setSelectedYear(savedFilters.selectedYear);
           setSelectedMonth(savedFilters.selectedMonth);
           setSelectedDay(savedFilters.selectedDay);
           setSortBy(savedFilters.sortBy);
           setSortDir(savedFilters.sortDir);
-          console.debug("[gallery:init] Restored saved filters", savedFilters);
         }
       } catch (error) {
         console.error("Failed to load saved data:", error);
@@ -358,6 +387,7 @@ export default function Page() {
   useEffect(() => {
     const filterState: FilterState = {
       search,
+      mediaType,
       selectedYear,
       selectedMonth,
       selectedDay,
@@ -368,7 +398,15 @@ export default function Page() {
     saveFilterStateToDB(filterState).catch((error) =>
       console.error("Failed to save filter state:", error),
     );
-  }, [search, selectedYear, selectedMonth, selectedDay, sortBy, sortDir]);
+  }, [
+    search,
+    mediaType,
+    selectedYear,
+    selectedMonth,
+    selectedDay,
+    sortBy,
+    sortDir,
+  ]);
 
   // -----------------------------
   // DATE INFO
@@ -425,6 +463,11 @@ export default function Page() {
 
     const matchesSearch = img.name.toLowerCase().includes(search.toLowerCase());
 
+    const matchesMediaType =
+      mediaType === "all" ||
+      (mediaType === "images" && img.type.startsWith("image/")) ||
+      (mediaType === "videos" && img.type.startsWith("video/"));
+
     const matchesYear =
       selectedYear === "all" || date.getFullYear() === Number(selectedYear);
 
@@ -434,7 +477,13 @@ export default function Page() {
     const matchesDay =
       selectedDay === "all" || date.getDate() === Number(selectedDay);
 
-    return matchesSearch && matchesYear && matchesMonth && matchesDay;
+    return (
+      matchesSearch &&
+      matchesMediaType &&
+      matchesYear &&
+      matchesMonth &&
+      matchesDay
+    );
   });
 
   // -----------------------------
@@ -468,23 +517,11 @@ export default function Page() {
     mode: "replace" | "append" = "replace",
   ) => {
     const files = Array.from(fileList);
-    console.debug("[gallery:files] Handling file input", {
-      mode,
-      incomingCount: files.length,
-    });
-
     const newMediaItems = mapFilesToMediaItems(files);
-    console.debug("[gallery:files] Filtered media files", {
-      mediaCount: newMediaItems.length,
-    });
 
     setMediaItems((prev) => {
       const updated =
         mode === "append" ? [...prev, ...newMediaItems] : newMediaItems;
-      console.debug("[gallery:files] Updating media state from files", {
-        previousCount: prev.length,
-        updatedCount: updated.length,
-      });
       // Save only metadata handles or legacy files.
       saveMediaToDB(toPersistedEntries(updated)).catch((error) =>
         console.error("Failed to save files:", error),
@@ -497,21 +534,11 @@ export default function Page() {
     handles: FileSystemFileHandle[],
     mode: "replace" | "append" = "replace",
   ) => {
-    console.debug("[gallery:handles] Handling folder handles", {
-      mode,
-      incomingCount: handles.length,
-    });
-
     const newMediaItems = await mapHandlesToMediaItems(handles);
 
     setMediaItems((prev) => {
       const updated =
         mode === "append" ? [...prev, ...newMediaItems] : newMediaItems;
-
-      console.debug("[gallery:handles] Updating media state from handles", {
-        previousCount: prev.length,
-        updatedCount: updated.length,
-      });
 
       saveMediaToDB(toPersistedEntries(updated)).catch((error) =>
         console.error("Failed to save handles:", error),
@@ -521,10 +548,53 @@ export default function Page() {
     });
   };
 
+  const handleReGrantAccess = async () => {
+    type FullHandle = FileSystemFileHandleLike & {
+      requestPermission?: (descriptor: { mode: string }) => Promise<string>;
+    };
+
+    const granted: FileSystemFileHandleLike[] = [];
+    const stillPending: FileSystemFileHandleLike[] = [];
+
+    for (const handle of pendingPermissionHandles) {
+      try {
+        const fullHandle = handle as FullHandle;
+        if (typeof fullHandle.requestPermission === "function") {
+          const result = await fullHandle.requestPermission({ mode: "read" });
+          if (result !== "granted") {
+            stillPending.push(handle);
+            continue;
+          }
+        }
+        granted.push(handle);
+      } catch (error) {
+        console.error("Failed to request permission for handle:", error);
+        stillPending.push(handle);
+      }
+    }
+
+    if (granted.length > 0) {
+      const newItems = await mapHandlesToMediaItems(
+        granted as FileSystemFileHandle[],
+      );
+      setMediaItems((prev) => {
+        const updated = [...prev, ...newItems];
+        saveMediaToDB(toPersistedEntries(updated)).catch((error) =>
+          console.error("Failed to save after permission grant:", error),
+        );
+        return updated;
+      });
+    }
+
+    setPendingPermissionHandles(stillPending);
+
+    if (stillPending.length === 0) {
+      toast.success("Access restored successfully.");
+    }
+  };
+
   const handleEmptyStateFolderSelect = async () => {
-    console.debug("[gallery:empty-select] Select folder clicked");
     if (!supportsDirectoryPicker()) {
-      console.debug("[gallery:empty-select] Falling back to file input");
       emptyStateInputRef.current?.click();
       return;
     }
@@ -536,25 +606,17 @@ export default function Page() {
 
       const picker = windowLike.showDirectoryPicker;
       if (!picker) {
-        console.debug(
-          "[gallery:empty-select] Picker unavailable at runtime, fallback to file input",
-        );
         emptyStateInputRef.current?.click();
         return;
       }
 
       const directoryHandle = await picker();
       const handles = await collectFileHandlesFromFSHandle(directoryHandle);
-      console.debug("[gallery:empty-select] Picker returned handles", {
-        handleCount: handles.length,
-      });
       await handleFolderHandles(handles, "replace");
     } catch (error) {
       const isAbortError =
         error instanceof DOMException && error.name === "AbortError";
-      if (isAbortError) {
-        console.debug("[gallery:empty-select] Picker cancelled by user");
-      } else {
+      if (!isAbortError) {
         console.error("Failed to pick directory from empty state:", error);
       }
     }
@@ -565,7 +627,6 @@ export default function Page() {
   // -----------------------------
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
-    console.debug("[gallery:drop] Drop event received");
 
     const items = e.dataTransfer.items;
     if (!items) return;
@@ -611,10 +672,6 @@ export default function Page() {
       }
     }
 
-    console.debug("[gallery:drop] Legacy drop collected files", {
-      fileCount: allFiles.length,
-    });
-
     handleFiles(allFiles, "replace");
   };
 
@@ -623,6 +680,41 @@ export default function Page() {
       return (
         <div className="flex flex-col items-center justify-center h-[60vh] text-gray-400">
           <p className="text-sm">Loading saved media...</p>
+        </div>
+      );
+    }
+
+    if (pendingPermissionHandles.length > 0 && mediaItems.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center h-[60vh] border-2 border-dashed border-yellow-700/50 rounded-lg text-gray-300 gap-4">
+          <p className="text-sm text-yellow-300">
+            Your saved folder needs permission to be accessed again.
+          </p>
+          <button
+            type="button"
+            onClick={handleReGrantAccess}
+            className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-500 font-medium"
+          >
+            Re-grant Access
+          </button>
+          <p className="text-xs text-gray-500">Or select a new folder below</p>
+          <button
+            type="button"
+            onClick={handleEmptyStateFolderSelect}
+            className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+          >
+            Select Folder
+          </button>
+          <input
+            ref={emptyStateInputRef}
+            type="file"
+            webkitdirectory="true"
+            multiple
+            hidden
+            onChange={(e) =>
+              e.target.files && handleFiles(e.target.files, "replace")
+            }
+          />
         </div>
       );
     }
@@ -662,9 +754,6 @@ export default function Page() {
           </div>
           <button
             onClick={async () => {
-              console.debug(
-                "[gallery:clear] Clearing saved media and UI state",
-              );
               await clearMediaFromDB();
               setMediaItems([]);
               toast.info("Saved media cleared");
@@ -687,6 +776,22 @@ export default function Page() {
         onFolderSelectFiles={handleFiles}
         onFolderSelectHandles={handleFolderHandles}
       />
+      {/* PERMISSION BANNER */}
+      {pendingPermissionHandles.length > 0 && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2 bg-yellow-900/60 border-b border-yellow-700 text-yellow-200 text-sm">
+          <span>
+            {pendingPermissionHandles.length} folder(s) need permission to be
+            read again.
+          </span>
+          <button
+            type="button"
+            onClick={handleReGrantAccess}
+            className="px-3 py-1 bg-yellow-600 hover:bg-yellow-500 text-white rounded text-xs font-medium"
+          >
+            Re-grant Access
+          </button>
+        </div>
+      )}
       {/* SEARCH + FILTERS */}
       <div className="flex gap-2 p-2 border-b text-sm flex-wrap items-center">
         <select
@@ -726,6 +831,18 @@ export default function Page() {
               {d.toString().padStart(2, "0")}
             </option>
           ))}
+        </select>
+
+        <select
+          value={mediaType}
+          onChange={(e) =>
+            setMediaType(e.target.value as "all" | "images" | "videos")
+          }
+          className="px-3 py-2 border rounded"
+        >
+          <option value="all">All Media</option>
+          <option value="images">Images Only</option>
+          <option value="videos">Videos Only</option>
         </select>
 
         <input

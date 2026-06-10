@@ -18,11 +18,42 @@ export type PersistedMediaEntry =
 
 export type FilterState = {
   search: string;
+  mediaType: "all" | "images" | "videos";
   selectedYear: string;
   selectedMonth: string;
   selectedDay: string;
   sortBy: "name" | "size" | "date";
   sortDir: "asc" | "desc";
+};
+
+const isBlobLike = (value: unknown): value is Blob =>
+  typeof value === "object" &&
+  value !== null &&
+  typeof (value as Blob).arrayBuffer === "function" &&
+  typeof (value as Blob).type === "string";
+
+const coerceToFile = (value: unknown): File | null => {
+  if (value instanceof File) return value;
+  if (!isBlobLike(value)) return null;
+
+  const blobLike = value as Blob & {
+    name?: unknown;
+    lastModified?: unknown;
+  };
+
+  const name =
+    typeof blobLike.name === "string" && blobLike.name.length > 0
+      ? blobLike.name
+      : "restored-media";
+  const lastModified =
+    typeof blobLike.lastModified === "number"
+      ? blobLike.lastModified
+      : Date.now();
+
+  return new File([blobLike], name, {
+    type: blobLike.type,
+    lastModified,
+  });
 };
 
 const toError = (value: unknown, fallbackMessage: string): Error => {
@@ -39,10 +70,12 @@ const normalizePersistedEntry = (
     entry !== null &&
     "storage" in entry &&
     (entry as { storage?: unknown }).storage === "file" &&
-    "file" in entry &&
-    (entry as { file?: unknown }).file instanceof File
+    "file" in entry
   ) {
-    return entry as PersistedMediaEntry;
+    const file = coerceToFile((entry as { file?: unknown }).file);
+    if (file) {
+      return { storage: "file", file };
+    }
   }
 
   if (
@@ -50,10 +83,22 @@ const normalizePersistedEntry = (
     entry !== null &&
     "storage" in entry &&
     (entry as { storage?: unknown }).storage === "handle" &&
-    "handle" in entry &&
-    isHandleLike((entry as { handle?: unknown }).handle)
+    "handle" in entry
   ) {
-    return entry as PersistedMediaEntry;
+    const handle = (entry as { handle?: unknown }).handle;
+    if (isHandleLike(handle)) {
+      return { storage: "handle", handle };
+    }
+
+    // Some browsers/versions may restore handle-like objects with a shape that
+    // doesn't satisfy our narrow type guard. Keep them so the caller can
+    // request permission or gracefully recover instead of silently dropping.
+    if (typeof handle === "object" && handle !== null) {
+      return {
+        storage: "handle",
+        handle: handle as FileSystemFileHandleLike,
+      };
+    }
   }
 
   // Backward compatibility: older versions stored raw File objects.
@@ -127,10 +172,16 @@ export async function saveMediaToDB(
   });
 }
 
-const isHandleLike = (value: unknown): value is FileSystemFileHandleLike =>
-  typeof value === "object" &&
-  value !== null &&
-  typeof (value as { getFile?: unknown }).getFile === "function";
+const isHandleLike = (value: unknown): value is FileSystemFileHandleLike => {
+  if (typeof value !== "object" || value === null) return false;
+  const maybeHandle = value as { getFile?: unknown; kind?: unknown };
+
+  if (typeof maybeHandle.getFile === "function") return true;
+
+  // Fallback for handle-like values that keep identity but lose method typing
+  // across serialization boundaries.
+  return maybeHandle.kind === "file";
+};
 
 export async function loadMediaFromDB(): Promise<PersistedMediaEntry[]> {
   console.debug("[gallery:db] loadMediaFromDB start");

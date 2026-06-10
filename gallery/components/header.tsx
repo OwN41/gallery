@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 type Props = {
   onFolderSelectFiles: (files: FileList | File[]) => void;
@@ -11,8 +11,16 @@ type DirectoryPickerWindow = Window & {
   showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
 };
 
-const isSupportedMediaType = (mimeType: string) =>
-  mimeType.startsWith("image/") || mimeType.startsWith("video/");
+const MEDIA_EXTENSION_REGEX =
+  /\.(avif|bmp|gif|heic|heif|jpe?g|png|svg|webp|mp4|m4v|mov|mkv|webm|avi|wmv|flv|3gp)$/i;
+
+const isSupportedMedia = (mimeType: string, fileName?: string) => {
+  if (mimeType.startsWith("image/") || mimeType.startsWith("video/")) {
+    return true;
+  }
+
+  return typeof fileName === "string" && MEDIA_EXTENSION_REGEX.test(fileName);
+};
 
 const supportsDirectoryPicker = () => {
   const windowLike = globalThis as unknown as DirectoryPickerWindow;
@@ -47,11 +55,7 @@ const collectMediaHandles = async (
     }
 
     if (isFileHandle(entry)) {
-      const file = await entry.getFile();
-
-      if (isSupportedMediaType(file.type)) {
-        handles.push(entry);
-      }
+      handles.push(entry);
     }
   }
 
@@ -68,17 +72,7 @@ export default function Header({
 }: Readonly<Props>) {
   const [loading, setLoading] = useState(false);
   const [count, setCount] = useState(0);
-  const [supportsDirectoryHandles, setSupportsDirectoryHandles] =
-    useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    const timer = globalThis.setTimeout(() => {
-      setSupportsDirectoryHandles(supportsDirectoryPicker());
-    }, 0);
-
-    return () => globalThis.clearTimeout(timer);
-  }, []);
 
   const handleChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
@@ -87,10 +81,6 @@ export default function Header({
     setCount(0);
 
     const files = Array.from(e.target.files);
-    console.debug("[gallery:header] File input selected", {
-      totalCount: files.length,
-    });
-
     const mediaFiles: File[] = [];
 
     // Process in chunks so UI doesn't freeze
@@ -101,7 +91,7 @@ export default function Header({
       const chunk = files.slice(index, index + CHUNK_SIZE);
 
       for (const file of chunk) {
-        if (file.type.startsWith("image/") || file.type.startsWith("video/")) {
+        if (isSupportedMedia(file.type, file.name)) {
           mediaFiles.push(file);
         }
       }
@@ -112,9 +102,6 @@ export default function Header({
       if (index < files.length) {
         setTimeout(processChunk, 0); // yield to browser
       } else {
-        console.debug("[gallery:header] File input processing complete", {
-          mediaCount: mediaFiles.length,
-        });
         onFolderSelectFiles(mediaFiles);
         setLoading(false);
       }
@@ -124,11 +111,8 @@ export default function Header({
   };
 
   const handleSelectFolder = async () => {
-    console.debug("[gallery:header] Select folder clicked", {
-      supportsDirectoryHandles,
-    });
+    const supportsDirectoryHandles = supportsDirectoryPicker();
     if (!supportsDirectoryHandles) {
-      console.debug("[gallery:header] Falling back to file input");
       fileInputRef.current?.click();
       return;
     }
@@ -140,7 +124,6 @@ export default function Header({
       const windowLike = globalThis as unknown as DirectoryPickerWindow;
       const picker = windowLike.showDirectoryPicker;
       if (!picker) {
-        console.debug("[gallery:header] Picker missing at runtime");
         return;
       }
 
@@ -154,13 +137,10 @@ export default function Header({
     } catch (error) {
       const isAbortError =
         error instanceof DOMException && error.name === "AbortError";
-      if (isAbortError) {
-        console.debug("[gallery:header] Picker cancelled by user");
-      } else {
+      if (!isAbortError) {
         console.error("Failed to pick directory:", error);
       }
     } finally {
-      console.debug("[gallery:header] Folder select flow complete");
       setLoading(false);
     }
   };
@@ -186,11 +166,7 @@ export default function Header({
             : "bg-gray-600 hover:bg-gray-800"
         }`}
       >
-        <span>
-          {supportsDirectoryHandles
-            ? "Select Folder (Fast Local)"
-            : "Select Folder"}
-        </span>
+        <span>Select Folder</span>
       </button>
 
       <input
