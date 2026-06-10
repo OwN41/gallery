@@ -18,6 +18,15 @@ type MediaItem = {
   lastModified: number;
 };
 
+const VIDEO_EXTENSION_REGEX = /\.(mp4|m4v|mov|mkv|webm|avi|wmv|flv|3gp)$/i;
+
+const isVideo = (mimeType: string, fileName: string): boolean => {
+  if (mimeType.startsWith("video/")) {
+    return true;
+  }
+  return VIDEO_EXTENSION_REGEX.test(fileName);
+};
+
 const ITEMS_PER_PAGE = 24;
 
 interface GalleryProps {
@@ -135,7 +144,7 @@ export default function Gallery({ images }: Readonly<GalleryProps>) {
                 // Only render if URL is available
                 if (!url) return null;
 
-                if (img.type.startsWith("video/")) {
+                if (isVideo(img.type, img.name)) {
                   return (
                     <VideoCard
                       key={key}
@@ -216,7 +225,7 @@ export default function Gallery({ images }: Readonly<GalleryProps>) {
           const url = urlMap.get(preview.id);
           if (!url) return null;
 
-          if (preview.type.startsWith("video/")) {
+          if (isVideo(preview.type, preview.name)) {
             return (
               <VideoPreview
                 src={url}
